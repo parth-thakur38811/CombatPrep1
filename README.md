@@ -7,7 +7,7 @@ No meshes, textures, materials, audio files, sprites, fonts, prefabs or authored
 Every rifle, every paper target, every sand dune, every gunshot and the entire interface is
 generated in code at run time. The Unity scene contains exactly one empty GameObject.
 
-<!<img width="1102" height="598" alt="Screenshot 2026-09-12 172240" src="https://github.com/user-attachments/assets/23daa8ec-e2c6-4a5a-bfe6-d1eaba95db4b" />
+<img width="1102" height="598" alt="Screenshot 2026-09-12 172240" src="https://github.com/user-attachments/assets/23daa8ec-e2c6-4a5a-bfe6-d1eaba95db4b" />
 <img width="1107" height="587" alt="Screenshot 2026-09-12 172036" src="https://github.com/user-attachments/assets/34f5d327-6862-4c0e-8122-7737c2ff4871" />
 <img width="1095" height="592" alt="Screenshot 2026-09-12 172141" src="https://github.com/user-attachments/assets/5c802f5c-a851-4ea8-825c-3edc62ca7ba1" />
 <img width="1106" height="603" alt="Screenshot 2026-09-12 172223" src="https://github.com/user-attachments/assets/2f20b076-157c-49b6-86cb-bf3608f83d0f" />

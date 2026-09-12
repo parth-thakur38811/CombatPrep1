@@ -44,8 +44,7 @@ Requires **Unity 6000.4.8f1** or newer with the Universal Render Pipeline.
 
 **Recoil is two decoupled layers.** [`PlayerLook`](Assets/Scripts/Player/PlayerLook.cs)
 owns the layer that actually moves bullets; [`WeaponAnimator`](Assets/Scripts/Weapons/WeaponAnimator.cs)
-owns the purely cosmetic kick and sway. Conflating the two is the most common reason a
-shooter feels wrong.
+owns the purely cosmetic kick and sway. 
 
 **Recoil compensation.** Recoil accumulates in its own value, separate from player aim.
 Mouse input opposing the recoil is spent shrinking that accumulator *before* it reaches the
@@ -54,8 +53,7 @@ release the weapon returns only by the amount the player did not compensate.
 
 **Learnable spray patterns.** [`RecoilSystem`](Assets/Scripts/Weapons/RecoilSystem.cs)
 derives each shot's offset from seeded Perlin noise indexed by shot number rather than from
-`Random`. The pattern is identical every time, so it can be memorised and countered, but
-authoring a new weapon costs one seed instead of thirty hand-placed keyframes.
+`Random`. 
 
 **The crosshair is honest.** Its gap is computed from the real spread cone, projected
 through the camera FOV into screen pixels — so the interface blooms by exactly as much as

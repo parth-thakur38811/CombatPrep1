@@ -34,7 +34,7 @@ namespace CombatPrep.UI
         float _hitmarkerUntil;
         Color _hitmarkerColor = Color.white;
 
-        Text _ammo, _stats, _weaponName;
+        Text _ammo, _stats, _weaponName, _grenades;
         Font _font;
         CrosshairStyle _style = CrosshairStyle.Cross;
         bool _crosshairVisible = true;
@@ -140,6 +140,10 @@ namespace CombatPrep.UI
             _weaponName.color = new Color(1f, 1f, 1f, 0.55f);
             _stats = MakeText(parent, "Stats", 20, TextAnchor.UpperLeft, new Vector2(0f, 1f), new Vector2(40f, -36f));
             _stats.color = new Color(1f, 1f, 1f, 0.7f);
+
+            // Grenade count, stacked above the weapon name in the bottom-right corner.
+            _grenades = MakeText(parent, "Grenades", 22, TextAnchor.LowerRight, new Vector2(1f, 0f), new Vector2(-48f, 138f));
+            _grenades.color = new Color(0.75f, 0.85f, 0.65f, 0.85f);
         }
 
         public Image MakeImage(Transform parent, string name, Color color)
@@ -227,6 +231,15 @@ namespace CombatPrep.UI
         }
 
         public void SetWeaponName(string n) => _weaponName.text = n;
+
+        public void SetGrenades(int count)
+        {
+            if (_grenades == null) return;
+            _grenades.text = $"GRENADE x{count}";
+            _grenades.color = count > 0
+                ? new Color(0.75f, 0.85f, 0.65f, 0.85f)
+                : new Color(1f, 1f, 1f, 0.30f);
+        }
 
         /// <summary>One call per trigger pull, so accuracy counts shots and not pellets.</summary>
         public void RegisterShot(bool hit, bool headshot, bool killed)

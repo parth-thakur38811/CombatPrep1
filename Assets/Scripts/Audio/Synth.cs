@@ -112,6 +112,47 @@ namespace CombatPrep.Audio
             return Make(name, data);
         }
 
+
+        /// <summary>
+        /// Grenade blast: a deep sine sweeping down for the pressure wave, a broadband
+        /// crack for the detonation itself, and a long low-passed rumble for the tail.
+        /// Much slower decay than a gunshot - the tail is what sells the size.
+        /// </summary>
+        public static AudioClip Explosion(string name, float gain = 1f)
+        {
+            float length = 1.9f;
+            int n = Mathf.CeilToInt(SampleRate * length);
+            var data = new float[n];
+
+            float lowState = 0f, rumbleState = 0f, phase = 0f;
+            float lowA = Coeff(220f);
+            float rumbleA = Coeff(90f);
+
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / SampleRate;
+                float noise = Random.value * 2f - 1f;
+
+                // Pressure wave: sweeps from ~110 Hz down to ~26 Hz.
+                float f = Mathf.Lerp(110f, 26f, Mathf.Clamp01(t * 2.2f));
+                phase += 2f * Mathf.PI * f / SampleRate;
+                float body = Mathf.Sin(phase) * Mathf.Exp(-t * 2.4f) * 1.1f;
+
+                // Detonation crack, gone almost immediately.
+                lowState += lowA * (noise - lowState);
+                float crack = (noise - lowState) * Mathf.Exp(-t * 34f) * 0.85f;
+
+                // Rumble tail.
+                rumbleState += rumbleA * (noise - rumbleState);
+                float tail = rumbleState * Mathf.Exp(-t * 1.7f) * 0.9f;
+
+                data[i] = SoftClip((body + crack + tail) * 1.7f) * gain;
+            }
+
+            Fade(data, 0.0006f, 0.25f);
+            return Make(name, data);
+        }
+
         // --- helpers ---
 
         static float Coeff(float cutoffHz) => 1f - Mathf.Exp(-2f * Mathf.PI * cutoffHz / SampleRate);

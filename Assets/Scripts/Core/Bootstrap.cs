@@ -266,10 +266,26 @@ namespace CombatPrep.Core
             weapon.Shake = rig.Shake;
             // Never trace against ourselves, and let rounds pass through spent debris and
             // the invisible play-area walls - otherwise misses would spark in mid-air.
-            weapon.HitMask = ~((1 << PlayerLayer)
-                             | (1 << FxSystem.DebrisLayer)
-                             | (1 << RangeBuilder.BoundaryLayer));
+            int hitMask = ~((1 << PlayerLayer)
+                          | (1 << FxSystem.DebrisLayer)
+                          | (1 << RangeBuilder.BoundaryLayer));
+            weapon.HitMask = hitMask;
             weapon.Init(entry.Def, model, anim);
+
+            // Grenade loadout lives on the same holder. It disables the weapon's model while
+            // equipped, and blast/arc casts share the weapon's hit mask so they respect the
+            // same walls and debris rules.
+            var thrower = holder.gameObject.AddComponent<GrenadeThrower>();
+            thrower.Cam = rig.Cam;
+            thrower.Motor = rig.Motor;
+            thrower.WeaponHolder = model.Root.gameObject;
+            // Blast damage and line-of-sight ignore the boundary walls (they only ring the
+            // arena's edge). The arc preview must instead include them, so it bounces off
+            // exactly what the thrown grenade physically bounces off - everything but the
+            // player and spent debris.
+            thrower.BlastMask = hitMask;
+            thrower.ArcMask = ~((1 << PlayerLayer) | (1 << FxSystem.DebrisLayer));
+            thrower.Init();
         }
 
         // ---------------------------------------------------------------------- targets

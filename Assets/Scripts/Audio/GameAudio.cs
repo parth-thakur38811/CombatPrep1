@@ -21,6 +21,7 @@ namespace CombatPrep.Audio
         public AudioClip Shot, DryFire, MagOut, MagIn, BoltRelease;
         public AudioClip HitMarker, HeadshotMarker, KillMarker;
         public AudioClip ImpactHard, ImpactSoft;
+        public AudioClip Explosion;
 
         void Awake()
         {
@@ -57,6 +58,7 @@ namespace CombatPrep.Audio
 
             ImpactHard = Synth.Impact("ImpactHard", 1.6f, 0.45f);
             ImpactSoft = Synth.Impact("ImpactSoft", 0.7f, 0.40f);
+            Explosion = Synth.Explosion("Explosion", 0.95f);
         }
 
         /// <summary>Regenerates the gunshot for a specific weapon's synth parameters.</summary>

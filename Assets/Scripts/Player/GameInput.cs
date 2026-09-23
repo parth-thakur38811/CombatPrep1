@@ -12,7 +12,7 @@ namespace CombatPrep.Player
     {
         public static GameInput I { get; private set; }
 
-        InputAction _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause;
+        InputAction _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause, _grenade;
 
         public Vector2 Move    => _move.ReadValue<Vector2>();
         public Vector2 Look    => _look.ReadValue<Vector2>();
@@ -24,6 +24,8 @@ namespace CombatPrep.Player
         public bool JumpPress  => _jump.WasPressedThisFrame();
         public bool Crouching  => _crouch.IsPressed();
         public bool PausePress => _pause.WasPressedThisFrame();
+        public bool FireRelease  => _fire.WasReleasedThisFrame();
+        public bool GrenadePress => _grenade.WasPressedThisFrame();
 
         void Awake()
         {
@@ -42,6 +44,7 @@ namespace CombatPrep.Player
             _jump   = new InputAction("Jump",   InputActionType.Button, "<Keyboard>/space");
             _crouch = new InputAction("Crouch", InputActionType.Button, "<Keyboard>/leftCtrl");
             _pause  = new InputAction("Pause",  InputActionType.Button, "<Keyboard>/escape");
+            _grenade = new InputAction("Grenade", InputActionType.Button, "<Keyboard>/g");
         }
 
         void OnEnable()
@@ -55,7 +58,7 @@ namespace CombatPrep.Player
             foreach (var a in All()) a.Disable();
         }
 
-        InputAction[] All() => new[] { _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause };
+        InputAction[] All() => new[] { _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause, _grenade };
 
         public static void LockCursor(bool locked)
         {

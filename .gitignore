@@ -51,6 +51,11 @@ ExportedObj/
 crashlytics-build.properties
 sysinfo.txt
 
+# Standalone Windows player builds exported into the project folder
+# (CombatPrep1/CombatPrep1.exe + _Data + DirectML.dll, ~126 MB - never commit)
+/CombatPrep1/
+*_BurstDebugInformation_DoNotShip/
+
 # ---------------------------------------------------------------------------
 # OS cruft
 # ---------------------------------------------------------------------------

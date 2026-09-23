@@ -1,100 +1,102 @@
 # CombatPrep
 
-A first-person shooting range built in Unity under one hard constraint: **no imported
-assets of any kind.**
+A first-person shooting range made in Unity, built under one rule: **nothing is downloaded
+or imported.**
 
-No meshes, textures, materials, audio files, sprites, fonts, prefabs or authored scenes.
-Every rifle, every paper target, every sand dune, every gunshot and the entire interface is
-generated in code at run time. The Unity scene contains exactly one empty GameObject.
+No 3D models, no textures, no sound files, no fonts. Every gun, every target, every sand
+dune and every gunshot is created by code while the game is running. The Unity scene file
+contains a single empty object — everything else is built from scratch when you press Play.
 
-<img width="1102" height="598" alt="Screenshot 2026-09-12 172240" src="https://github.com/user-attachments/assets/23daa8ec-e2c6-4a5a-bfe6-d1eaba95db4b" />
-<img width="1107" height="587" alt="Screenshot 2026-09-12 172036" src="https://github.com/user-attachments/assets/34f5d327-6862-4c0e-8122-7737c2ff4871" />
-<img width="1095" height="592" alt="Screenshot 2026-09-12 172141" src="https://github.com/user-attachments/assets/5c802f5c-a851-4ea8-825c-3edc62ca7ba1" />
-<img width="1106" height="602" alt="Screenshot 2026-09-12 171011" src="https://github.com/user-attachments/assets/c990b279-3452-401c-a4bd-2e226981aa71" />
+> **How this was made:** I planned the project, decided what to build, played each version
+> and worked out what needed fixing. The code itself was written with the help of
+> [Claude Code](https://claude.com/claude-code), an AI coding assistant. I've said so here
+> because being straightforward about it matters more to me than appearing to have done it
+> alone.
 
+![The shooting range](docs/range-overview.png)
 
-## Why the constraint is interesting
+## The idea
 
-Removing imported assets removes the usual answer to every problem, so each one has to be
-solved rather than bought:
+Normally when you make a game you download models and sounds that other people made. I
+wanted to see what happens if you can't do that — if every single thing has to be produced
+by writing code instead.
 
-| Normally an asset | Here |
-|---|---|
-| Weapon and target models | ~25 scaled Unity primitives per weapon, assembled from a `WeaponShape` spec |
-| Textures | `Texture2D` drawn pixel by pixel — camouflage, hex, stripes, concrete, sand, and the printed target sheet |
-| Gunshot audio | Three synthesised voices — a high-passed noise *crack*, a downward-sweeping sine *body*, and a low-passed *tail* — summed and soft-clipped |
-| Level geometry | Procedurally assembled desert range, deterministically seeded so the layout is identical every run |
-| Reticles | Emissive geometry on the sight axis, inside a ring-built optic with a genuinely open bore |
+It turns out you can get quite far:
+
+- **Guns** are built from about 25 of Unity's basic shapes — cubes, cylinders and spheres —
+  stacked into a rifle.
+- **Textures** are drawn pixel by pixel in code: camouflage patterns, rusted metal, sand,
+  concrete, and the printed paper target sheets.
+- **Sounds** are generated as raw audio. A gunshot is three layers mixed together — a sharp
+  crack, a low thump, and the echo afterwards.
+- **The range itself** — dunes, shipping containers, sandbags, barrels — is assembled by a
+  script when the game starts.
+
+## What's in it
+
+Five weapons — an assault rifle, submachine gun, marksman rifle, pistol and shotgun — each
+with six colour schemes you choose before playing. The patterns are generated too, so the
+camouflage and stripes are drawn by code rather than painted by hand.
+
+![Choosing a weapon and finish](docs/loadout-carbine.png)
+
+![The shotgun in the Redline finish](docs/loadout-shotgun.png)
+
+Targets are paper silhouettes hanging in steel frames. They swing backwards when you hit
+them and drop flat when you knock them down, then pop back up with a fresh sheet. Some
+slide sideways, some bob up and down, and some jump to random positions, so you can
+practise different kinds of aiming.
+
+![Hitting a target, with damage numbers](docs/hit-feedback.png)
+
+## Some things I wanted to get right
+
+**Recoil you can learn.** Each gun kicks in the same pattern every time instead of
+randomly, so with practice you can pull down against it — the way it works in competitive
+shooters. Pulling against the recoil properly cancels it out rather than fighting the
+game.
+
+**An honest crosshair.** The crosshair opens up by exactly as much as your bullets actually
+spread. It isn't a decoration; it's showing you the real number.
+
+**Sights that work.** Each scope is a hollow ring you genuinely look through, with a glowing
+reticle sitting on the centre line, rather than a picture pasted over the screen.
+
+![Looking through the marksman rifle scope](docs/scope-dmr.png)
 
 ## Running it
 
-Requires **Unity 6000.4.8f1** or newer with the Universal Render Pipeline.
+You'll need **Unity 6000.4.8f1** or newer.
 
 1. Open the project in Unity.
-2. Menu bar: **CombatPrep → Build Range Scene** (`Ctrl+Shift+R`).
-3. Press **Play**, choose a weapon and finish, and deploy.
+2. In the menu bar, choose **CombatPrep → Build Range Scene**.
+3. Press **Play**, pick a weapon, and deploy.
 
-| Input | Action |
+| Key | Does |
 |---|---|
-| `WASD` / `Mouse` | Move / look |
-| `LMB` / `RMB` | Fire / aim down sights |
+| `WASD` / Mouse | Move / look |
+| Left click / Right click | Fire / aim |
 | `R` | Reload |
 | `Shift` / `Ctrl` / `Space` | Sprint / crouch / jump |
-| `Esc` | Return to loadout |
+| `Esc` | Back to weapon selection |
 
-## Selected engineering details
-
-**Recoil is two decoupled layers.** [`PlayerLook`](Assets/Scripts/Player/PlayerLook.cs)
-owns the layer that actually moves bullets; [`WeaponAnimator`](Assets/Scripts/Weapons/WeaponAnimator.cs)
-owns the purely cosmetic kick and sway. 
-
-**Recoil compensation.** Recoil accumulates in its own value, separate from player aim.
-Mouse input opposing the recoil is spent shrinking that accumulator *before* it reaches the
-base aim, so pulling down cancels the climb instead of fighting the recovery — and on
-release the weapon returns only by the amount the player did not compensate.
-
-**Learnable spray patterns.** [`RecoilSystem`](Assets/Scripts/Weapons/RecoilSystem.cs)
-derives each shot's offset from seeded Perlin noise indexed by shot number rather than from
-`Random`. 
-
-**The crosshair is honest.** Its gap is computed from the real spread cone, projected
-through the camera FOV into screen pixels — so the interface blooms by exactly as much as
-the bullets actually scatter.
-
-**Sight alignment is solved, not tuned.** The aim-down-sights pose is derived by solving
-for the transform that places the optic's sight point on the camera axis at the weapon's
-own eye relief, so a compact red dot and a 200 mm scope both align correctly with no
-hand-placed offsets.
-
-**Everything is built at run time.** [`Bootstrap`](Assets/Scripts/Core/Bootstrap.cs)
-constructs lighting, post-processing, the range, the player, the weapon and the targets on
-start. Nothing lives in the scene file, which means no binary scene assets and no merge
-conflicts.
-
-## Structure
+## How the code is organised
 
 ```
 Assets/Scripts/
-  Core/      Bootstrap, RangeBuilder, Prim (primitives), Mat (materials),
-             Tex (procedural textures), Spring
-  Player/    GameInput, PlayerMotor, PlayerLook
-  Weapons/   WeaponLibrary, WeaponDefinition, Weapon, RecoilSystem,
-             SpreadSystem, WeaponModelBuilder, WeaponAnimator
-  Skins/     SkinLibrary, SkinApplier
-  Targets/   Target, TargetBuilder, TargetMover
-  Audio/     Synth, GameAudio, ListenerRig
-  FX/        FxSystem, CameraShake
-  UI/        Hud, MainMenu
+  Core/      Startup, the range builder, and the shape/texture/material helpers
+  Player/    Movement, mouse look, input
+  Weapons/   The five weapons, recoil, spread, and how guns are assembled
+  Skins/     Colour schemes and pattern generation
+  Targets/   Targets, how they're built, and how they move
+  Audio/     Sound generation
+  FX/        Tracers, impacts, bullet holes, camera shake
+  UI/        Heads-up display and the weapon selection menu
 ```
 
-Five weapons spanning the handling space — assault rifle, SMG, marksman rifle, sidearm and
-a nine-pellet shotgun — each with six interchangeable finishes.
-
-## Design notes
-
-[COMBATPREP.md](COMBATPREP.md) documents the reasoning behind the feel systems in more
-depth, along with the current known limitations.
+If you'd like the detailed technical reasoning behind the aiming and recoil systems, it's
+written up in [COMBATPREP.md](COMBATPREP.md).
 
 ## Built with
 
-Unity 6000.4.8f1 · Universal Render Pipeline 17.4 · Input System 1.19 · C#
+Unity 6000.4.8f1, C#, Universal Render Pipeline

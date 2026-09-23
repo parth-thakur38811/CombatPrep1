@@ -171,6 +171,92 @@ namespace CombatPrep.FX
             }
         }
 
+        // ------------------------------------------------------------------- explosion
+
+        Material _fireMat;
+        Material FireMat => _fireMat ??= MakeAdditive(new Color(1f, 0.55f, 0.18f));
+
+        /// <summary>
+        /// Grenade blast: an expanding fireball, a bright light flash, flung debris and a
+        /// scorch mark. All primitives and one point light, animated by a coroutine and
+        /// torn down after - no particle system, in keeping with the rest of the project.
+        /// </summary>
+        public void Explosion(Vector3 centre, float radius)
+        {
+            // Fireball.
+            var ball = Prim.Ball(transform, "Blast", centre, 0.6f, new Color(1f, 0.6f, 0.2f), 0f, 1f);
+            ball.GetComponent<MeshRenderer>().sharedMaterial = FireMat;
+
+            // Light flash.
+            var lightGo = new GameObject("BlastLight");
+            lightGo.transform.position = centre;
+            var light = lightGo.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.72f, 0.42f);
+            light.range = radius * 3.2f;
+            light.intensity = 22f;
+
+            // Ground scorch.
+            var scorch = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            Destroy(scorch.GetComponent<Collider>());
+            scorch.name = "Scorch";
+            scorch.transform.SetParent(transform, true);
+            scorch.transform.position = centre + Vector3.up * 0.03f;
+            scorch.transform.rotation = Quaternion.Euler(90f, Random.Range(0f, 360f), 0f);
+            scorch.transform.localScale = Vector3.one * radius * 1.1f;
+            scorch.GetComponent<MeshRenderer>().sharedMaterial =
+                Mat.Get(new Color(0.04f, 0.03f, 0.03f), 0f, 0.1f);
+            Destroy(scorch, 9f);
+
+            // Debris chunks flung out.
+            for (int i = 0; i < 14; i++)
+            {
+                var d = Prim.Box(transform, "Frag", centre, Vector3.one * Random.Range(0.05f, 0.13f),
+                                 new Color(0.18f, 0.16f, 0.14f), 0.3f, 0.3f, true);
+                d.gameObject.layer = DebrisLayer;
+                var rb = d.gameObject.AddComponent<Rigidbody>();
+                rb.mass = 0.05f;
+                Vector3 dir = (Vector3.up * 0.6f + Random.insideUnitSphere).normalized;
+                rb.AddForce(dir * Random.Range(6f, 13f), ForceMode.Impulse);
+                rb.AddTorque(Random.insideUnitSphere * 0.4f, ForceMode.Impulse);
+                Destroy(d.gameObject, Random.Range(2.5f, 4f));
+            }
+
+            StartCoroutine(AnimateBlast(ball, light, radius));
+        }
+
+        System.Collections.IEnumerator AnimateBlast(Transform ball, Light light, float radius)
+        {
+            float t = 0f;
+            const float dur = 0.5f;
+            var mr = ball.GetComponent<MeshRenderer>();
+            var mat = new Material(mr.sharedMaterial);   // per-blast instance so alpha fades independently
+            mr.sharedMaterial = mat;
+
+            while (t < dur)
+            {
+                t += Time.deltaTime;
+                float u = t / dur;
+
+                // Fireball punches out fast then holds; colour cools white -> orange -> dark.
+                float scale = Mathf.SmoothStep(0.6f, radius * 1.15f, Mathf.Sqrt(u));
+                ball.localScale = Vector3.one * scale;
+
+                Color c = Color.Lerp(new Color(1f, 0.95f, 0.7f), new Color(0.7f, 0.22f, 0.06f), u);
+                c.a = 1f - u;
+                mat.SetColor("_BaseColor", c);
+
+                if (light != null)
+                    light.intensity = Mathf.Lerp(22f, 0f, u * u);
+
+                yield return null;
+            }
+
+            if (light != null) Destroy(light.gameObject);
+            Destroy(ball.gameObject);
+            Destroy(mat);
+        }
+
         void Update()
         {
             float now = Time.time;

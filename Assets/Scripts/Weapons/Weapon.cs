@@ -38,7 +38,29 @@ namespace CombatPrep.Weapons
         int _burstRemaining;
 
         public bool IsReloading => _reloadDoneAt > 0f;
-        public bool Active { get; set; } = true;
+
+        bool _active = true;
+        /// <summary>
+        /// Set false to holster the weapon (e.g. while a grenade is out). Update stops, so
+        /// the gun cannot fire - and disabling cleanly cancels any in-progress aim so the
+        /// zoom, movement lock and FOV don't strand at their aimed values.
+        /// </summary>
+        public bool Active
+        {
+            get => _active;
+            set
+            {
+                if (_active == value) return;
+                _active = value;
+                if (!value)
+                {
+                    if (Look != null) Look.IsAiming = false;
+                    if (Motor != null) Motor.AdsLock = false;
+                    if (_anim != null) _anim.ForceHip();
+                    if (Cam != null && Def != null) Cam.fieldOfView = Def.HipFov;
+                }
+            }
+        }
 
         public void Init(WeaponDefinition def, WeaponModel model, WeaponAnimator anim)
         {

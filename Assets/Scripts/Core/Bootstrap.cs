@@ -279,6 +279,7 @@ namespace CombatPrep.Core
             thrower.Cam = rig.Cam;
             thrower.Motor = rig.Motor;
             thrower.WeaponHolder = model.Root.gameObject;
+            thrower.Weapon = weapon;
             // Blast damage and line-of-sight ignore the boundary walls (they only ring the
             // arena's edge). The arc preview must instead include them, so it bounces off
             // exactly what the thrown grenade physically bounces off - everything but the

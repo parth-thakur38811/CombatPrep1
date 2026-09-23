@@ -44,6 +44,13 @@ namespace CombatPrep.Weapons
 
         public float AdsProgress => _adsT;
 
+        /// <summary>Snaps out of aim/sprint poses. Used when the weapon is holstered for a grenade.</summary>
+        public void ForceHip()
+        {
+            _adsT = 0f;
+            _sprintT = 0f;
+        }
+
         public void Init(WeaponDefinition def, WeaponModel model, PlayerMotor motor)
         {
             _def = def;

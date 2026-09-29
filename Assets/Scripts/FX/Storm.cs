@@ -26,7 +26,7 @@ namespace CombatPrep.FX
         public static Storm I { get; private set; }
 
         /// <summary>Horizon colour. Bootstrap's fog uses exactly this so sky and fog meet seamlessly.</summary>
-        public static readonly Color Horizon = new(0.22f, 0.24f, 0.27f);
+        public static readonly Color Horizon = new(0.25f, 0.27f, 0.30f);
         static readonly Color FlashTint = new(0.78f, 0.84f, 1f);
         static readonly Vector3 ArenaCentre = new(0f, 0f, 42f);
 
@@ -94,8 +94,8 @@ namespace CombatPrep.FX
                     _sky.SetFloat("_TexBlend", 1f);
                     _sky.SetFloat("_TexExposure", art.SkyExposure);
                     _sky.SetFloat("_CloudOpacity", 0.55f);
-                    _sky.SetColor("_CloudDark", new Color(0.06f, 0.066f, 0.078f));
-                    _sky.SetColor("_CloudLight", new Color(0.145f, 0.155f, 0.18f));
+                    _sky.SetColor("_CloudDark", new Color(0.07f, 0.077f, 0.09f));
+                    _sky.SetColor("_CloudLight", new Color(0.17f, 0.18f, 0.21f));
                 }
                 RenderSettings.skybox = _sky;
             }

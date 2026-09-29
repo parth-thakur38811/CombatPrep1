@@ -28,6 +28,11 @@ namespace CombatPrep.Net
     /// only the server changes health. Each trigger pull becomes one ShotRpc carrying the
     /// pellet end points (so everyone else sees and hears the shot) and any player hits
     /// (which the server validates and turns into damage using its own numbers).
+    ///
+    /// Grenades are the server's alone: a throw is sent to it, it flies an unseen copy of
+    /// the grenade and, when the fuse runs out, damages every player the blast can see -
+    /// judged from their positions, so it can hurt the host and the thrower too. Everyone's
+    /// screen shows its own copy in flight and the explosion where the server's went off.
     /// </summary>
     public class NetPlayer : NetworkBehaviour
     {
@@ -81,6 +86,15 @@ namespace CombatPrep.Net
         float _budgetStamp;
         const float ShotBurstAllowance = 4f;
 
+        // Grenades: the owner numbers its throws; the server keeps its own count per life.
+        const int GrenadesPerLife = 4;
+        int _grenadeSeq;
+        int _grenadesLeft = GrenadesPerLife;
+        float _nextGrenadeAt;
+
+        /// <summary>Heights checked for a blast to reach, as fractions of standing height.</summary>
+        static readonly float[] BlastHeights = { 0.25f, 0.95f, 1.55f };
+
         public string PlayerName => DisplayName.Value.ToString();
         public PlayerRig Rig => _rig;
         public bool IsAlive => Health.Value > 0f;
@@ -118,6 +132,7 @@ namespace CombatPrep.Net
                 _rig.Weapon.ShotStarting -= OnShotStarting;
                 _rig.Weapon.ShotFired -= OnShotFired;
             }
+            if (_hasRig && _rig.Thrower != null) _rig.Thrower.Thrown -= OnGrenadeThrown;
             if (RemoteHitProxy.Collector == this) RemoteHitProxy.Collector = null;
 
             All.Remove(this);
@@ -191,6 +206,9 @@ namespace CombatPrep.Net
 
             _rig.Weapon.ShotStarting += OnShotStarting;
             _rig.Weapon.ShotFired += OnShotFired;
+
+            _rig.Thrower.Networked = true;
+            _rig.Thrower.Thrown += OnGrenadeThrown;
 
             Hud.I.SetHealthVisible(true);
             Hud.I.SetHealth(Health.Value);
@@ -321,7 +339,106 @@ namespace CombatPrep.Net
 
             int spawn = MatchManager.I != null ? MatchManager.I.ChooseSpawn(this) : (int)OwnerClientId;
             Health.Value = MaxHealth;
+            _grenadesLeft = GrenadesPerLife;      // the thrower refills to match
             RespawnRpc(spawn);
+        }
+
+        // ----------------------------------------------------------------- grenades
+
+        /// <summary>Owner: show our grenade at once, and ask the server to throw the real one.</summary>
+        void OnGrenadeThrown(Vector3 origin, Vector3 velocity)
+        {
+            int id = ++_grenadeSeq;
+            Grenade.SpawnVisual(NetworkObjectId, id, origin, velocity);
+            ThrowGrenadeRpc(id, origin, velocity);
+        }
+
+        [Rpc(SendTo.Server)]
+        void ThrowGrenadeRpc(int id, Vector3 origin, Vector3 velocity, RpcParams rpcParams = default)
+        {
+            if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
+            if (!IsAlive || MatchManager.I == null || !MatchManager.I.IsPlaying) return;
+
+            // The throw has to be one this player could make: grenades left, not faster than
+            // the throw cooldown, from roughly where they stand, at no more than arm's speed.
+            if (_grenadesLeft <= 0 || Time.time < _nextGrenadeAt) return;
+            if ((origin - (transform.position + Vector3.up * 1.3f)).sqrMagnitude > 3f * 3f) return;
+            if (velocity.sqrMagnitude > 22f * 22f) return;
+            _grenadesLeft--;
+            _nextGrenadeAt = Time.time + 0.4f;
+
+            GrenadeFlightRpc(id, origin, velocity);
+            var real = Grenade.Spawn(origin, velocity, GrenadeRole.Authority, 0);
+            real.Detonated = centre => GrenadeBlastServer(id, centre);
+        }
+
+        /// <summary>Everyone else: the same grenade flying on their screen.</summary>
+        [Rpc(SendTo.NotOwner)]
+        void GrenadeFlightRpc(int id, Vector3 origin, Vector3 velocity)
+            => Grenade.SpawnVisual(NetworkObjectId, id, origin, velocity);
+
+        /// <summary>
+        /// Server, when the real grenade's fuse runs out: an explosion on every screen, then
+        /// damage to each player the blast can reach. A player counts as reached if the blast
+        /// has a clear line to their feet, chest or head, and the nearest such point sets the
+        /// damage band. Walls and cover block it; other players don't.
+        /// </summary>
+        void GrenadeBlastServer(int id, Vector3 centre)
+        {
+            // The thrower may have left while it was in the air.
+            if (this == null || !IsSpawned || MatchManager.I == null || !MatchManager.I.IsPlaying) return;
+            GrenadeExplodedRpc(id, centre);
+
+            // Lifted off the ground a little, so the lines out don't graze the dirt.
+            Vector3 origin = centre + Vector3.up * 0.2f;
+            bool hitSomeone = false, killed = false;
+
+            foreach (var player in All.ToArray())
+            {
+                if (player == null || !player.IsAlive) continue;
+
+                float crouch = player.Crouched.Value ? 0.62f : 1f;
+                float nearest = float.MaxValue;
+                foreach (float h in BlastHeights)
+                {
+                    Vector3 point = player.transform.position + Vector3.up * (1.8f * h * crouch);
+                    float d = Vector3.Distance(origin, point);
+                    if (d >= nearest || d > Grenade.DefaultOuter) continue;
+                    if (Physics.Linecast(origin, point, Weather.WorldMask, QueryTriggerInteraction.Ignore)) continue;
+                    nearest = d;
+                }
+                if (nearest == float.MaxValue) continue;
+
+                float damage = Grenade.DefaultDamage * Grenade.DefaultFalloff(nearest);
+                if (damage <= 0f) continue;
+
+                player.TakeDamageServer(damage, this);
+                if (player != this)
+                {
+                    hitSomeone = true;
+                    killed |= !player.IsAlive;
+                }
+            }
+
+            if (hitSomeone) BlastHitRpc(killed);
+        }
+
+        /// <summary>Everyone: the explosion, where the server's grenade actually went off.</summary>
+        [Rpc(SendTo.Everyone)]
+        void GrenadeExplodedRpc(int id, Vector3 centre)
+        {
+            Grenade.RemoveVisual(NetworkObjectId, id);
+            FxSystem.I.Explosion(centre, Grenade.DefaultOuter);
+            GameAudio.I.PlayAt(GameAudio.I.Explosion, centre, 1f, 0.05f, maxDistance: 220f);
+        }
+
+        /// <summary>The thrower: a hit marker for a blast that caught someone.</summary>
+        [Rpc(SendTo.Owner)]
+        void BlastHitRpc(bool killed)
+        {
+            if (!_hasRig) return;
+            Hud.I.ReportHit(0f, false, killed, Vector3.zero);
+            GameAudio.I.Play(killed ? GameAudio.I.KillMarker : GameAudio.I.HitMarker, 0.9f, 0.02f);
         }
 
         // --------------------------------------------------------- everyone's view
@@ -335,9 +452,8 @@ namespace CombatPrep.Net
             Vector3 muzzle = _avatar.MuzzlePosition;
             var def = Weapon.Def;
 
-            FxSystem.I.RemoteMuzzleFlash(muzzle);
             // Gunshots carry across the whole arena, not the 60 m used for impact sounds.
-            GameAudio.I.PlayAt(GameAudio.I.ShotFor(def), muzzle, 1f, 0.05f, maxDistance: 220f);
+            GameAudio.I.PlayShotAt(def, muzzle, maxDistance: 220f);
 
             foreach (var end in ends)
             {

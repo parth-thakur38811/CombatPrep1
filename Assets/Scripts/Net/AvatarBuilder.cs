@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using CombatPrep.Core;
+using CombatPrep.FX;
 using CombatPrep.Skins;
 using CombatPrep.Targets;
 using CombatPrep.Weapons;
@@ -16,6 +17,8 @@ namespace CombatPrep.Net
         public Transform Nameplate;
         public Text NameText;
         public WeaponModel Weapon;
+        /// <summary>The muzzle flash on this player's gun.</summary>
+        public FlashFx Flash;
 
         /// <summary>Look pitch in degrees, eased - positive is looking down.</summary>
         protected float Pitch;
@@ -52,7 +55,11 @@ namespace CombatPrep.Net
         }
 
         /// <summary>This player fired - everyone else's copy of them shows it.</summary>
-        public virtual void OnShot() { }
+        public virtual void OnShot()
+        {
+            if (Flash != null) Flash.Play();
+            else if (FxSystem.I != null) FxSystem.I.RemoteMuzzleFlash(MuzzlePosition);
+        }
 
         public virtual void OnDied() => SetVisible(false);
 
@@ -208,20 +215,20 @@ namespace CombatPrep.Net
         static AvatarView BuildSoldier(Transform parent, int slot, string displayName, WeaponShape shape,
                                        SkinDefinition skin, ArtLibrary.Character art)
         {
+            var avatar = SoldierAvatar(art.Prefab);
+            if (avatar == null) return null;
+
             var root = Prim.Empty(parent, "Avatar");
             var body = Object.Instantiate(art.Prefab, root, false);
             body.name = "Soldier";
             var animator = body.GetComponent<Animator>();
-            if (animator == null || animator.avatar == null || !animator.avatar.isHuman)
-            {
-                Debug.LogWarning("[Avatar] Soldier prefab has no Humanoid avatar - using the primitive soldier.");
-                Object.Destroy(root.gameObject);
-                return null;
-            }
+            if (animator == null) animator = body.AddComponent<Animator>();
 
+            animator.avatar = avatar;
             animator.runtimeAnimatorController = art.Controller;
             animator.applyRootMotion = false;                             // the network moves the body
             animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;     // hitboxes ride the bones
+            animator.Rebind();
 
             // Hitboxes and the armband are sized from the model's rest pose, which is what the
             // bones still hold now - the Animator hasn't evaluated yet.
@@ -236,11 +243,41 @@ namespace CombatPrep.Net
             var model = WeaponModelBuilder.Build(mount, shape);
             SkinApplier.Apply(model, skin);
             view.Init(animator, model, mount, art.HasDeath);
+            if (FxSystem.I != null) view.Flash = FxSystem.I.AttachRemoteMuzzle(model.Muzzle);
 
             BuildNameplate(root, 2.1f, view, displayName, id);
 
             WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
             return view;
+        }
+
+        static Avatar _soldierAvatar;
+        static GameObject _soldierAvatarFor;
+        static bool _soldierAvatarFailed;
+
+        /// <summary>
+        /// The soldier's Humanoid avatar, built once from a spare copy of the model standing
+        /// alone at the origin (see HumanoidRig) and shared by every soldier after that.
+        /// </summary>
+        static Avatar SoldierAvatar(GameObject prefab)
+        {
+            if (_soldierAvatarFor == prefab && _soldierAvatar != null) return _soldierAvatar;
+            if (_soldierAvatarFailed) return null;
+
+            var spare = Object.Instantiate(prefab);
+            spare.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+            var avatar = HumanoidRig.Build(spare);
+            Object.Destroy(spare);
+
+            if (avatar == null)
+            {
+                _soldierAvatarFailed = true;
+                Debug.LogWarning("[Avatar] The soldier's joints didn't make a Humanoid avatar - using the primitive soldier.");
+                return null;
+            }
+            _soldierAvatar = avatar;
+            _soldierAvatarFor = prefab;
+            return avatar;
         }
 
         /// <summary>
@@ -388,6 +425,7 @@ namespace CombatPrep.Net
             var model = WeaponModelBuilder.Build(gunMount, shape);
             SkinApplier.Apply(model, skin);
             view.Weapon = model;
+            if (FxSystem.I != null) view.Flash = FxSystem.I.AttachRemoteMuzzle(model.Muzzle);
 
             BuildNameplate(upper, 2.15f - BlockyAvatarView.HipHeight, view, displayName, id);
 

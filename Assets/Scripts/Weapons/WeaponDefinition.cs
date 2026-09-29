@@ -25,6 +25,8 @@ namespace CombatPrep.Weapons
     {
         [Header("Identity")]
         public string DisplayName = "Rifle";
+        /// <summary>The weapon's id (WeaponEntry.Id) - also how its recorded gunshots are found.</summary>
+        public string Id;
 
         [Header("Firing")]
         public FireMode Mode = FireMode.Auto;

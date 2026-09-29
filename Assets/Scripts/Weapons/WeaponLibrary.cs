@@ -25,10 +25,12 @@ namespace CombatPrep.Weapons
 
         public static WeaponEntry[] All => _all ??= Build();
 
-        static WeaponEntry[] Build() => new[]
+        static WeaponEntry[] Build()
         {
-            Carbine(), Smg(), Dmr(), Pistol(), Shotgun()
-        };
+            var all = new[] { Carbine(), Smg(), Dmr(), Pistol(), Shotgun() };
+            foreach (var e in all) e.Def.Id = e.Id;
+            return all;
+        }
 
         // ------------------------------------------------------------------- assault rifle
 

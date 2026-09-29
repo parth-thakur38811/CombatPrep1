@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using UnityEditor;
 using UnityEngine;
@@ -9,14 +11,19 @@ namespace CombatPrep.EditorTools
     /// <summary>
     /// Import settings for everything under Assets/Art, applied the moment a file lands:
     /// normal maps flagged as normal maps, data maps kept linear, the HDRI made a cubemap,
-    /// models imported without their own materials and with Y up - and Mixamo animations as
-    /// Humanoid clips (see SoldierBuilder).
+    /// models imported without their own materials and with Y up, Mixamo animations as
+    /// Humanoid clips (see SoldierBuilder), and gunshots decompressed up front.
     /// </summary>
     public class ArtImportSettings : AssetPostprocessor
     {
         void OnPreprocessTexture()
         {
             if (ArtBuilder.IsArt(assetPath)) ArtBuilder.Configure((TextureImporter)assetImporter);
+        }
+
+        void OnPreprocessAudio()
+        {
+            if (ArtBuilder.IsArt(assetPath)) ArtBuilder.Configure((AudioImporter)assetImporter);
         }
 
         void OnPreprocessModel()
@@ -37,7 +44,9 @@ namespace CombatPrep.EditorTools
             foreach (var list in new[] { imported, deleted, moved, movedFrom })
             foreach (var path in list)
             {
-                if (!ArtBuilder.IsSource(path)) continue;
+                // A deleted effect prefab is remade from its recipe, too.
+                bool fxGone = list == deleted && path.StartsWith(FxPrefabBuilder.Dir + "/");
+                if (!ArtBuilder.IsSource(path) && !fxGone) continue;
                 ArtAutoBuild.Schedule();
                 return;
             }
@@ -97,11 +106,12 @@ namespace CombatPrep.EditorTools
         public const string Root = "Assets/Art";
         const string Generated = Root + "/Generated";
         const string Materials = Root + "/Materials";
-        const string LibraryPath = Root + "/Resources/ArtLibrary.asset";
+        public const string LibraryPath = Root + "/Resources/ArtLibrary.asset";
         const string SkyPath = Root + "/Sky/overcast_soil_puresky_2k.hdr";
+        const string WeaponAudio = Root + "/Audio/Weapons";
 
         /// <summary>Bump to force every machine to rebuild after changing this file.</summary>
-        const int Version = 5;
+        const int Version = 7;
         const int MaskSize = 512;
 
         public static bool IsArt(string path) => path.StartsWith(Root + "/");
@@ -251,6 +261,12 @@ namespace CombatPrep.EditorTools
                 Configure(ti);
                 if (Signature(ti) != before) ti.SaveAndReimport();
             }
+            else if (imp is AudioImporter ai)
+            {
+                string before = Signature(ai);
+                Configure(ai);
+                if (Signature(ai) != before) ai.SaveAndReimport();
+            }
             else if (imp is ModelImporter mi)
             {
                 string before = Signature(mi);
@@ -263,6 +279,28 @@ namespace CombatPrep.EditorTools
         static string Signature(TextureImporter t) =>
             $"{t.textureType}|{t.textureShape}|{t.sRGBTexture}|{t.generateCubemap}|{t.textureCompression}|" +
             $"{t.maxTextureSize}|{t.anisoLevel}|{t.mipmapEnabled}|{t.wrapMode}";
+
+        /// <summary>
+        /// Gunshots are short and fired constantly, so they're decompressed once at load
+        /// rather than decoded every shot; mono, since the game places them itself.
+        /// </summary>
+        public static void Configure(AudioImporter ai)
+        {
+            ai.forceToMono = true;
+            ai.loadInBackground = false;
+            var s = ai.defaultSampleSettings;
+            s.loadType = AudioClipLoadType.DecompressOnLoad;
+            s.compressionFormat = AudioCompressionFormat.Vorbis;
+            s.quality = 0.7f;
+            s.sampleRateSetting = AudioSampleRateSetting.PreserveSampleRate;
+            s.preloadAudioData = true;
+            ai.defaultSampleSettings = s;
+        }
+
+        static string Signature(AudioImporter a) =>
+            $"{a.forceToMono}|{a.loadInBackground}|{a.defaultSampleSettings.loadType}|" +
+            $"{a.defaultSampleSettings.compressionFormat}|{a.defaultSampleSettings.quality}|" +
+            $"{a.defaultSampleSettings.preloadAudioData}";
 
         static string Signature(ModelImporter m) =>
             $"{m.materialImportMode}|{m.bakeAxisConversion}|{m.importAnimation}|{m.animationType}|" +
@@ -290,7 +328,7 @@ namespace CombatPrep.EditorTools
         {
             if (!Directory.Exists(Root + "/Textures") && !Directory.Exists(Root + "/Props")) return false;
             var lib = AssetDatabase.LoadAssetAtPath<ArtLibrary>(LibraryPath);
-            return lib == null || lib.SourceStamp != ComputeStamp();
+            return lib == null || lib.SourceStamp != ComputeStamp() || FxPrefabBuilder.AnyMissing();
         }
 
         // ---------------------------------------------------------------- build
@@ -367,10 +405,16 @@ namespace CombatPrep.EditorTools
             // 4. Sky. Measured from the file: ~1.8 overhead, ~0.75 near the horizon - scaled
             // down hard, because a storm sits far darker than the overcast day it was shot on.
             lib.Sky = AssetDatabase.LoadAssetAtPath<Texture>(SkyPath);
-            lib.SkyExposure = 0.12f;
+            lib.SkyExposure = 0.14f;
 
             // 5. The online soldier, and its animations if the Mixamo clips are in.
             lib.Soldier = SoldierBuilder.Build();
+
+            // 6. Recorded gunshots, grouped by weapon id from their file names.
+            lib.WeaponSounds = BuildWeaponSounds();
+
+            // 7. The effect prefabs - made from their recipes only where missing, so edits stick.
+            lib.Fx = FxPrefabBuilder.Build();
 
             lib.SourceStamp = ComputeStamp();
             EditorUtility.SetDirty(lib);
@@ -380,7 +424,8 @@ namespace CombatPrep.EditorTools
                            : lib.Soldier.Controller == null ? "model only (no animations yet)"
                            : "animated";
             Debug.Log($"<b>CombatPrep</b>: art library built - {ok}/{Surfaces.Length} surfaces, " +
-                      $"{props}/{Props.Length} props, sky {(lib.Sky != null ? "yes" : "missing")}, soldier {soldier}.");
+                      $"{props}/{Props.Length} props, sky {(lib.Sky != null ? "yes" : "missing")}, soldier {soldier}, " +
+                      $"gunshots for {lib.WeaponSounds.Length} weapons.");
         }
 
         static ArtLibrary.Surface BuildSurface(SurfaceSpec s,
@@ -441,6 +486,32 @@ namespace CombatPrep.EditorTools
                 Size = p.Size,
                 ImpactColor = AverageColour(diff) * p.Tint
             };
+        }
+
+        /// <summary>
+        /// Art/Audio/Weapons/&lt;weapon id&gt;_shot_&lt;n&gt;.wav, one set per weapon. Takes are kept in
+        /// file order; the game plays them in turn.
+        /// </summary>
+        static ArtLibrary.WeaponSound[] BuildWeaponSounds()
+        {
+            if (!Directory.Exists(WeaponAudio)) return System.Array.Empty<ArtLibrary.WeaponSound>();
+
+            var byWeapon = new SortedDictionary<string, List<AudioClip>>(System.StringComparer.Ordinal);
+            var files = Directory.GetFiles(WeaponAudio, "*.wav").Select(f => f.Replace('\\', '/'))
+                                 .OrderBy(f => f, System.StringComparer.Ordinal);
+            foreach (var path in files)
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                int cut = name.IndexOf("_shot", System.StringComparison.Ordinal);
+                if (cut <= 0) continue;
+                var clip = AssetDatabase.LoadAssetAtPath<AudioClip>(path);
+                if (clip == null) continue;
+                string id = name.Substring(0, cut);
+                if (!byWeapon.TryGetValue(id, out var list)) byWeapon[id] = list = new List<AudioClip>();
+                list.Add(clip);
+            }
+            return byWeapon.Select(kv => new ArtLibrary.WeaponSound { WeaponId = kv.Key, Shots = kv.Value.ToArray() })
+                           .ToArray();
         }
 
         // ---------------------------------------------------------------- textures

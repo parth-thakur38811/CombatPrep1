@@ -9,10 +9,12 @@ contains a single empty object — everything else is built from scratch when yo
 
 The latest version turns the range into a rain-soaked war zone at dusk. For that I relaxed the
 rule for surfaces: the ground, concrete, containers, sandbags, the sky and a few props now use
-free, public-domain textures and models from [Poly Haven](https://polyhaven.com), and the
-soldiers you fight online are a rigged model shared under CC BY, animated with Mixamo (all
-listed in [CREDITS.md](CREDITS.md)). The guns, sounds, rain, fire and lightning are still made
-in code.
+free, public-domain textures and models from [Poly Haven](https://polyhaven.com), the
+soldiers you fight online are a rigged model shared under CC BY, animated with Mixamo, and the
+gunshots are real recordings from a public-domain firearm library (all listed in
+[CREDITS.md](CREDITS.md)). The guns, the other sounds and the lightning are still made in code,
+and so were the rain, fire, muzzle-flash and impact effects - which now live as prefabs in
+`Assets/Prefabs/FX`, so they can be tuned in the editor.
 
 > **How this was made:** I planned the project, decided what to build, played each version
 > and worked out what needed fixing. The code itself was written with the help of
@@ -34,8 +36,9 @@ It turns out you can get quite far:
   stacked into a rifle.
 - **Textures** are drawn pixel by pixel in code: camouflage patterns, rusted metal, and the
   printed paper target sheets. (Sand and concrete were too, until the war-zone update.)
-- **Sounds** are generated as raw audio. A gunshot is three layers mixed together — a sharp
-  crack, a low thump, and the echo afterwards.
+- **Sounds** are generated as raw audio. A gunshot was three layers mixed together — a sharp
+  crack, a low thump, and the echo afterwards. (Since the war-zone update the crack and thump
+  are real recordings; the echo is still synthesised under them.)
 - **The range itself** — dunes, shipping containers, sandbags, barrels — is assembled by a
   script when the game starts.
 - **The storm** is code as well: rain that stops at roofs and splashes where it lands,
@@ -116,7 +119,7 @@ Assets/Scripts/
   Skins/     Colour schemes and pattern generation
   Targets/   Targets, how they're built, and how they move
   Audio/     Sound generation
-  FX/        Tracers, impacts, bullet holes, camera shake
+  FX/        Effect recipes and players (rain, fire, muzzle flash, tracers, impacts), storm, camera shake
   UI/        Heads-up display and the weapon selection menu
 ```
 

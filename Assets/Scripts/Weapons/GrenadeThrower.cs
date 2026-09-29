@@ -34,11 +34,18 @@ namespace CombatPrep.Weapons
         public float ThrowCooldown = 0.55f;
 
         [Header("Grenade spec (copied onto each thrown grenade)")]
-        public float FuseSeconds = 2.4f;
-        public float CloseRadius = 3.5f;    // 100% damage
-        public float MediumRadius = 6.5f;   //  50%
-        public float OuterRadius = 10f;     //  25%, nothing beyond
-        public float BaseDamage = 120f;
+        public float FuseSeconds = Grenade.DefaultFuse;
+        public float CloseRadius = Grenade.DefaultClose;    // 100% damage
+        public float MediumRadius = Grenade.DefaultMedium;  //  50%
+        public float OuterRadius = Grenade.DefaultOuter;    //  25%, nothing beyond
+        public float BaseDamage = Grenade.DefaultDamage;
+
+        [Header("Online")]
+        [Tooltip("Online, throws are handed to the network (Thrown) instead of exploding here.")]
+        public bool Networked;
+
+        /// <summary>Online: a throw's launch point and velocity, for NetPlayer to send to the server.</summary>
+        public event System.Action<Vector3, Vector3> Thrown;
 
         [Header("Arc preview")]
         public Color ArcColor = new Color(1f, 0.16f, 0.12f);
@@ -280,20 +287,21 @@ namespace CombatPrep.Weapons
         {
             if (_count <= 0) return;
 
-            var go = new GameObject("Grenade");
-            go.transform.position = Origin();
-            Grenade.BuildModel(go.transform);
-
-            var col = go.AddComponent<SphereCollider>();
-            col.radius = 0.055f;
-
-            var nade = go.AddComponent<Grenade>();
-            nade.FuseSeconds = FuseSeconds;
-            nade.CloseRadius = CloseRadius;
-            nade.MediumRadius = MediumRadius;
-            nade.OuterRadius = OuterRadius;
-            nade.BaseDamage = BaseDamage;
-            nade.Launch(Origin(), Velocity(), BlastMask);
+            if (Networked)
+            {
+                // Online the server throws the real one; NetPlayer shows ours straight away.
+                Thrown?.Invoke(Origin(), Velocity());
+            }
+            else
+            {
+                var nade = Grenade.Spawn(Origin(), Velocity(), GrenadeRole.Practice, BlastMask);
+                nade.FuseSeconds = FuseSeconds;
+                nade.CloseRadius = CloseRadius;
+                nade.MediumRadius = MediumRadius;
+                nade.OuterRadius = OuterRadius;
+                nade.BaseDamage = BaseDamage;
+                nade.Launch(Origin(), Velocity(), BlastMask);   // restart the fuse at the spec's length
+            }
 
             _count--;
             _nextThrowAt = Time.time + ThrowCooldown;

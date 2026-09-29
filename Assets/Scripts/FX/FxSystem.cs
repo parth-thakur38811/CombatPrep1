@@ -1,14 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.Rendering;
 using CombatPrep.Core;
 
 namespace CombatPrep.FX
 {
     /// <summary>
-    /// Tracers, muzzle flash, impact sparks and bullet holes - all from primitives and
-    /// LineRenderers, no particle assets. Everything is pooled; nothing allocates after
-    /// warm-up, which matters once you are dumping 600 RPM downrange.
+    /// Muzzle flashes, tracers, impacts, bullet holes and explosions - each one a prefab in
+    /// Prefabs/FX (see FxRecipes for how they were first made), so they can be opened and
+    /// tuned in the editor. If a prefab is missing, the same effect is built from its recipe.
+    ///
+    /// Everything that fires constantly is pooled; nothing allocates after warm-up, which
+    /// matters once you are dumping 600 RPM downrange.
     /// </summary>
     public class FxSystem : MonoBehaviour
     {
@@ -17,175 +19,132 @@ namespace CombatPrep.FX
         /// <summary>Spent debris lives here so bullets pass straight through it.</summary>
         public const int DebrisLayer = 9;
 
-        [Header("Tracer")]
-        public float TracerLife = 0.055f;
-        public float TracerWidth = 0.022f;
-        public Color TracerColor = new Color(1f, 0.82f, 0.35f);
-
-        [Header("Impact")]
+        [Header("Pools")]
         public int MaxHoles = 120;
+        public int ImpactPool = 24;
+        public int RemoteFlashPool = 8;
 
-        Material _additive, _holeMat;
-        Light _muzzleLight;
-        Transform _muzzleFlash;
-        float _flashUntil;
-
-        readonly List<LineRenderer> _tracerPool = new();
-        readonly List<float> _tracerExpiry = new();
+        FlashFx _muzzle;
+        readonly List<TracerFx> _tracers = new();
+        readonly List<FlashFx> _impacts = new();
+        readonly List<FlashFx> _remoteFlashes = new();
         readonly Queue<Transform> _holes = new();
-        readonly List<Transform> _debris = new();
-        readonly List<Rigidbody> _debrisBodies = new();
-        readonly List<float> _debrisExpiry = new();
+        int _nextImpact, _nextRemote;
 
-        void Awake()
+        static ArtLibrary.Effects Lib => ArtLibrary.I != null ? ArtLibrary.I.Fx : null;
+
+        void Awake() => I = this;
+
+        /// <summary>A copy of an effect: its prefab if there is one, otherwise built from its recipe.</summary>
+        static GameObject Spawn(GameObject prefab, System.Func<GameObject> recipe, Transform parent)
         {
-            I = this;
-            _additive = MakeAdditive(TracerColor);
-            _holeMat = Mat.Get(new Color(0.03f, 0.03f, 0.04f), 0f, 0.05f);
+            var go = prefab != null ? Instantiate(prefab) : recipe();
+            go.transform.SetParent(parent, false);
+            return go;
         }
 
-        /// <summary>URP/Unlit switched to additive blending in code - no shader asset needed.</summary>
-        static Material MakeAdditive(Color c)
-        {
-            var m = new Material(Mat.UnlitShader);
-            m.SetColor("_BaseColor", c);
-            m.SetFloat("_Surface", 1f);                                  // transparent
-            m.SetFloat("_Blend", 2f);                                    // additive
-            m.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-            m.SetFloat("_DstBlend", (float)BlendMode.One);
-            m.SetFloat("_ZWrite", 0f);
-            m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            m.renderQueue = (int)RenderQueue.Transparent;
-            return m;
-        }
+        // ------------------------------------------------------------------ muzzle flash
 
-        public void AttachMuzzle(Transform muzzle)
-        {
-            var lightGo = new GameObject("MuzzleLight");
-            lightGo.transform.SetParent(muzzle, false);
-            _muzzleLight = lightGo.AddComponent<Light>();
-            _muzzleLight.type = LightType.Point;
-            _muzzleLight.color = new Color(1f, 0.78f, 0.45f);
-            _muzzleLight.range = 7f;
-            _muzzleLight.intensity = 0f;
+        /// <summary>Your own gun's flash, riding its muzzle.</summary>
+        public void AttachMuzzle(Transform muzzle) => _muzzle = AttachRemoteMuzzle(muzzle);
 
-            _muzzleFlash = Prim.Ball(muzzle, "MuzzleFlash", Vector3.zero, 0.085f, TracerColor, 0f, 1f);
-            _muzzleFlash.GetComponent<MeshRenderer>().sharedMaterial = _additive;
-            _muzzleFlash.gameObject.SetActive(false);
+        /// <summary>A flash for any gun's muzzle - another player's gun gets its own.</summary>
+        public FlashFx AttachRemoteMuzzle(Transform muzzle)
+        {
+            var go = Spawn(Lib?.MuzzleFlash, FxRecipes.MuzzleFlash, muzzle);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+            return go.GetComponent<FlashFx>();
         }
 
         public void MuzzleFlash()
         {
-            _flashUntil = Time.time + 0.035f;
-            if (_muzzleLight != null) _muzzleLight.intensity = Random.Range(9f, 14f);
-            if (_muzzleFlash != null)
-            {
-                _muzzleFlash.gameObject.SetActive(true);
-                _muzzleFlash.localScale = Vector3.one * Random.Range(0.07f, 0.11f);
-                _muzzleFlash.localRotation = Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
-            }
+            if (_muzzle != null) _muzzle.Play();
         }
+
+        /// <summary>A flash at an arbitrary point, for a gun with none attached.</summary>
+        public void RemoteMuzzleFlash(Vector3 position)
+        {
+            FlashFx flash;
+            if (_remoteFlashes.Count < RemoteFlashPool)
+            {
+                flash = Spawn(Lib?.MuzzleFlash, FxRecipes.MuzzleFlash, transform).GetComponent<FlashFx>();
+                _remoteFlashes.Add(flash);
+            }
+            else
+            {
+                flash = _remoteFlashes[_nextRemote];
+                _nextRemote = (_nextRemote + 1) % _remoteFlashes.Count;
+            }
+            flash.transform.position = position;
+            flash.Play();
+        }
+
+        // ------------------------------------------------------------------------ tracer
 
         public void Tracer(Vector3 from, Vector3 to)
         {
-            LineRenderer lr = null;
-            for (int i = 0; i < _tracerPool.Count; i++)
-                if (!_tracerPool[i].gameObject.activeSelf) { lr = _tracerPool[i]; break; }
+            TracerFx tracer = null;
+            foreach (var t in _tracers)
+                if (!t.gameObject.activeSelf) { tracer = t; break; }
 
-            if (lr == null)
+            if (tracer == null)
             {
-                var go = new GameObject("Tracer");
-                go.transform.SetParent(transform, false);
-                lr = go.AddComponent<LineRenderer>();
-                lr.material = _additive;
-                lr.positionCount = 2;
-                lr.useWorldSpace = true;
-                lr.shadowCastingMode = ShadowCastingMode.Off;
-                lr.receiveShadows = false;
-                _tracerPool.Add(lr);
-                _tracerExpiry.Add(0f);
+                tracer = Spawn(Lib?.Tracer, FxRecipes.Tracer, transform).GetComponent<TracerFx>();
+                _tracers.Add(tracer);
             }
-
-            int idx = _tracerPool.IndexOf(lr);
-            lr.gameObject.SetActive(true);
-            lr.startWidth = TracerWidth;
-            lr.endWidth = TracerWidth * 0.35f;
-            lr.SetPosition(0, from);
-            lr.SetPosition(1, to);
-            _tracerExpiry[idx] = Time.time + TracerLife;
+            tracer.Fire(from, to);
         }
 
+        // ------------------------------------------------------------------------ impact
+
         /// <summary>
-        /// Impact burst. Pass <paramref name="attachTo"/> for surfaces that move (a swinging
-        /// target board) so the hole travels with them instead of hanging in world space.
+        /// Impact burst: dust and chips in the surface's colour, sparks if it's hard, and a hole.
+        /// Pass <paramref name="attachTo"/> for surfaces that move (a swinging target board) so
+        /// the hole travels with them instead of hanging in world space.
         /// </summary>
+        /// <param name="debrisCount">How much flies off: -1 for the effect's own amount, or a
+        /// count where 4 is a full burst.</param>
         public void Impact(Vector3 point, Vector3 normal, Color surfaceTint,
                            Transform attachTo = null, int debrisCount = -1, bool spark = true,
                            bool hole = true)
         {
-            if (spark)
+            FlashFx fx;
+            if (_impacts.Count < ImpactPool)
             {
-                var flash = Prim.Ball(transform, "ImpactFlash", point, 0.12f, TracerColor, 0f, 1f);
-                flash.GetComponent<MeshRenderer>().sharedMaterial = _additive;
-                Destroy(flash.gameObject, 0.05f);
+                fx = Spawn(Lib?.Impact, FxRecipes.Impact, transform).GetComponent<FlashFx>();
+                _impacts.Add(fx);
+            }
+            else
+            {
+                fx = _impacts[_nextImpact];
+                _nextImpact = (_nextImpact + 1) % _impacts.Count;
             }
 
-            // Debris: a few tiny cubes thrown off along the normal.
-            int count = debrisCount >= 0 ? debrisCount : Random.Range(3, 6);
-            for (int i = 0; i < count; i++)
-            {
-                var d = Prim.Box(transform, "Debris", point, Vector3.one * Random.Range(0.012f, 0.028f),
-                                 surfaceTint, 0.2f, 0.3f, true);
-                d.gameObject.layer = DebrisLayer;   // excluded from the bullet mask
-                var rb = d.gameObject.AddComponent<Rigidbody>();
-                rb.mass = 0.02f;
-                Vector3 dir = (normal + Random.insideUnitSphere * 0.75f).normalized;
-                rb.AddForce(dir * Random.Range(1.6f, 3.4f), ForceMode.Impulse);
-                rb.AddTorque(Random.insideUnitSphere * 0.05f, ForceMode.Impulse);
-                Destroy(d.gameObject, 2.2f);
-            }
+            fx.transform.SetPositionAndRotation(point + normal * 0.01f, Quaternion.LookRotation(normal));
+            fx.Play(debrisCount < 0 ? 1f : debrisCount / 4f, surfaceTint, spark);
 
             if (hole) BulletHole(point, normal, attachTo);
         }
 
-        /// <summary>
-        /// A muzzle flash at an arbitrary gun - another player's. The local MuzzleFlash is
-        /// welded to our own weapon's light, so remote shots get a short-lived flash and light
-        /// of their own at the avatar's muzzle.
-        /// </summary>
-        public void RemoteMuzzleFlash(Vector3 position)
-        {
-            var flash = Prim.Ball(transform, "RemoteFlash", position, Random.Range(0.10f, 0.15f), TracerColor, 0f, 1f);
-            flash.GetComponent<MeshRenderer>().sharedMaterial = _additive;
-            Destroy(flash.gameObject, 0.045f);
-
-            var lightGo = new GameObject("RemoteFlashLight");
-            lightGo.transform.SetParent(transform, false);
-            lightGo.transform.position = position;
-            var light = lightGo.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.color = new Color(1f, 0.78f, 0.45f);
-            light.range = 6f;
-            light.intensity = 9f;
-            Destroy(lightGo, 0.05f);
-        }
-
         void BulletHole(Vector3 point, Vector3 normal, Transform attachTo)
         {
-            var q = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            Destroy(q.GetComponent<Collider>());
-            q.name = "Hole";
-            q.transform.SetParent(attachTo != null ? attachTo : transform, true);
+            var q = Spawn(Lib?.BulletHole, FxRecipes.BulletHole, attachTo != null ? attachTo : transform).transform;
             // Lift off the surface to avoid z-fighting, and face outward.
-            q.transform.position = point + normal * 0.004f;
-            q.transform.rotation = Quaternion.LookRotation(-normal) * Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
-            q.transform.localScale = Vector3.one * Random.Range(0.022f, 0.034f);
-            q.GetComponent<MeshRenderer>().sharedMaterial = _holeMat;
+            q.position = point + normal * 0.004f;
+            q.rotation = Quaternion.LookRotation(-normal) * Quaternion.Euler(0f, 0f, Random.Range(0f, 360f));
+            q.localScale = Vector3.one * Random.Range(0.03f, 0.045f);
+            if (attachTo != null)
+            {
+                // Undo the target's scale so every hole is the same size.
+                var s = attachTo.lossyScale;
+                q.localScale = new Vector3(q.localScale.x / Mathf.Max(1e-4f, s.x),
+                                           q.localScale.y / Mathf.Max(1e-4f, s.y),
+                                           q.localScale.z / Mathf.Max(1e-4f, s.z));
+                return;   // holes on a target die with that target's board on respawn
+            }
 
-            // Holes parented to a target die with that target's board on respawn.
-            if (attachTo != null) return;
-
-            _holes.Enqueue(q.transform);
+            _holes.Enqueue(q);
             while (_holes.Count > MaxHoles)
             {
                 var old = _holes.Dequeue();
@@ -195,104 +154,18 @@ namespace CombatPrep.FX
 
         // ------------------------------------------------------------------- explosion
 
-        Material _fireMat;
-        Material FireMat => _fireMat ??= MakeAdditive(new Color(1f, 0.55f, 0.18f));
-
         /// <summary>
-        /// Grenade blast: an expanding fireball, a bright light flash, flung debris and a
-        /// scorch mark. All primitives and one point light, animated by a coroutine and
-        /// torn down after - no particle system, in keeping with the rest of the project.
+        /// Grenade blast: the Explosion prefab scaled to the blast radius - fireball, smoke,
+        /// sparks, debris, a flash of light and a scorch mark. It removes itself afterwards.
         /// </summary>
         public void Explosion(Vector3 centre, float radius)
         {
-            // Fireball.
-            var ball = Prim.Ball(transform, "Blast", centre, 0.6f, new Color(1f, 0.6f, 0.2f), 0f, 1f);
-            ball.GetComponent<MeshRenderer>().sharedMaterial = FireMat;
-
-            // Light flash.
-            var lightGo = new GameObject("BlastLight");
-            lightGo.transform.position = centre;
-            var light = lightGo.AddComponent<Light>();
-            light.type = LightType.Point;
-            light.color = new Color(1f, 0.72f, 0.42f);
-            light.range = radius * 3.2f;
-            light.intensity = 22f;
-
-            // Ground scorch.
-            var scorch = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            Destroy(scorch.GetComponent<Collider>());
-            scorch.name = "Scorch";
-            scorch.transform.SetParent(transform, true);
-            scorch.transform.position = centre + Vector3.up * 0.03f;
-            scorch.transform.rotation = Quaternion.Euler(90f, Random.Range(0f, 360f), 0f);
-            scorch.transform.localScale = Vector3.one * radius * 1.1f;
-            scorch.GetComponent<MeshRenderer>().sharedMaterial =
-                Mat.Get(new Color(0.04f, 0.03f, 0.03f), 0f, 0.1f);
-            Destroy(scorch, 9f);
-
-            // Debris chunks flung out.
-            for (int i = 0; i < 14; i++)
-            {
-                var d = Prim.Box(transform, "Frag", centre, Vector3.one * Random.Range(0.05f, 0.13f),
-                                 new Color(0.18f, 0.16f, 0.14f), 0.3f, 0.3f, true);
-                d.gameObject.layer = DebrisLayer;
-                var rb = d.gameObject.AddComponent<Rigidbody>();
-                rb.mass = 0.05f;
-                Vector3 dir = (Vector3.up * 0.6f + Random.insideUnitSphere).normalized;
-                rb.AddForce(dir * Random.Range(6f, 13f), ForceMode.Impulse);
-                rb.AddTorque(Random.insideUnitSphere * 0.4f, ForceMode.Impulse);
-                Destroy(d.gameObject, Random.Range(2.5f, 4f));
-            }
-
-            StartCoroutine(AnimateBlast(ball, light, radius));
-        }
-
-        System.Collections.IEnumerator AnimateBlast(Transform ball, Light light, float radius)
-        {
-            float t = 0f;
-            const float dur = 0.5f;
-            var mr = ball.GetComponent<MeshRenderer>();
-            var mat = new Material(mr.sharedMaterial);   // per-blast instance so alpha fades independently
-            mr.sharedMaterial = mat;
-
-            while (t < dur)
-            {
-                t += Time.deltaTime;
-                float u = t / dur;
-
-                // Fireball punches out fast then holds; colour cools white -> orange -> dark.
-                float scale = Mathf.SmoothStep(0.6f, radius * 1.15f, Mathf.Sqrt(u));
-                ball.localScale = Vector3.one * scale;
-
-                Color c = Color.Lerp(new Color(1f, 0.95f, 0.7f), new Color(0.7f, 0.22f, 0.06f), u);
-                c.a = 1f - u;
-                mat.SetColor("_BaseColor", c);
-
-                if (light != null)
-                    light.intensity = Mathf.Lerp(22f, 0f, u * u);
-
-                yield return null;
-            }
-
-            if (light != null) Destroy(light.gameObject);
-            Destroy(ball.gameObject);
-            Destroy(mat);
-        }
-
-        void Update()
-        {
-            float now = Time.time;
-
-            for (int i = 0; i < _tracerPool.Count; i++)
-                if (_tracerPool[i].gameObject.activeSelf && now > _tracerExpiry[i])
-                    _tracerPool[i].gameObject.SetActive(false);
-
-            if (_muzzleLight != null && now > _flashUntil)
-            {
-                _muzzleLight.intensity = Mathf.Lerp(_muzzleLight.intensity, 0f, 1f - Mathf.Exp(-30f * Time.deltaTime));
-                if (_muzzleFlash != null && _muzzleFlash.gameObject.activeSelf)
-                    _muzzleFlash.gameObject.SetActive(false);
-            }
+            var go = Spawn(Lib?.Explosion, FxRecipes.Explosion, transform);
+            go.transform.SetPositionAndRotation(centre, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f));
+            go.transform.localScale = Vector3.one * (radius / 4f);
+            var light = go.GetComponentInChildren<Light>(true);
+            if (light != null) light.range = radius * 3.2f;
+            go.GetComponent<FlashFx>().Play();
         }
     }
 }

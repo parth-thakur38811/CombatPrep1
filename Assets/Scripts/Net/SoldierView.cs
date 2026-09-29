@@ -65,7 +65,11 @@ namespace CombatPrep.Net
                 gun.Support.localPosition - gun.Grip.localPosition, Vector3.up));
         }
 
-        public override void OnShot() => _lastShot = Time.time;
+        public override void OnShot()
+        {
+            base.OnShot();
+            _lastShot = Time.time;
+        }
 
         public override void OnDied()
         {

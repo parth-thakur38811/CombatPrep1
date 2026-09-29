@@ -298,9 +298,18 @@ namespace CombatPrep.Core
                 float r = Random.Range(0.9f, 2.4f);
                 if (OverlapsProp(p, r)) continue;
 
-                Prim.Quad(t, "Puddle", new Vector3(p.x, 0.008f + placed * 0.0004f, p.y),
-                          new Vector2(r * 2f, r * 2f * Random.Range(0.6f, 1f)),
-                          _puddleMats[placed % _puddleMats.Length], new Vector3(90f, Random.Range(0f, 360f), 0f));
+                // Drawn in the same order as always, so the seeded stream stays in step.
+                float aspect = Random.Range(0.6f, 1f);
+                float yaw = Random.Range(0f, 360f);
+                var pos = new Vector3(p.x, 0.008f + placed * 0.0004f, p.y);
+
+                var prefab = Art != null && Art.Fx != null ? Art.Fx.Puddle : null;
+                var go = prefab != null ? Object.Instantiate(prefab) : FX.FxRecipes.Puddle();
+                go.name = "Puddle";
+                go.transform.SetParent(t, false);
+                go.transform.localPosition = pos;
+                go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+                go.GetComponent<FX.PuddleFx>().Setup(placed, r * 2f, r * 2f * aspect, FX.ParticleKit.Seed(pos));
                 placed++;
             }
         }

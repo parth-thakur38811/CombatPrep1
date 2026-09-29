@@ -99,7 +99,7 @@ namespace CombatPrep.Weapons
             // same turn rate as a red dot.
             Look.AdsSensScale = def.AdsSensScale;
 
-            GameAudio.I.RebuildShot(def.ShotGain, def.ShotDecay, def.ShotBodyHz, def.ShotCrack, def.ShotTail);
+            GameAudio.I.SetLocalWeapon(def);
             FxSystem.I.AttachMuzzle(model.Muzzle);
 
             Hud.I.SetWeaponName(def.DisplayName);
@@ -232,7 +232,7 @@ namespace CombatPrep.Weapons
 
             // --- feedback ---
             FxSystem.I.MuzzleFlash();
-            GameAudio.I.Play(GameAudio.I.Shot, 1f, 0.045f);
+            GameAudio.I.PlayLocalShot();
 
             Look.AddRecoil(_recoil.NextImpulse(aiming));
             _anim.Kick();

@@ -1,4 +1,7 @@
+using System.Collections.Generic;
 using UnityEngine;
+using CombatPrep.Core;
+using CombatPrep.Weapons;
 
 namespace CombatPrep.Audio
 {
@@ -6,6 +9,10 @@ namespace CombatPrep.Audio
     /// Builds the whole sound bank at startup and plays it through a round-robin source
     /// pool, so rapid fire overlaps properly instead of cutting itself off. Slight pitch
     /// jitter per shot stops full-auto from turning into a machine-gun buzzsaw.
+    ///
+    /// Gunshots are real recordings where the art library has them (Art/Audio/Weapons),
+    /// several takes per gun played in turn, each layered over a synthesised tail for the
+    /// space around it; the synthesised report stands in for any gun without recordings.
     /// </summary>
     public class GameAudio : MonoBehaviour
     {
@@ -13,12 +20,12 @@ namespace CombatPrep.Audio
 
         [Header("Mix")]
         public float MasterVolume = 0.75f;
-        public int VoiceCount = 12;
+        public int VoiceCount = 24;
 
         AudioSource[] _voices;
         int _next;
 
-        public AudioClip Shot, DryFire, MagOut, MagIn, BoltRelease;
+        public AudioClip DryFire, MagOut, MagIn, BoltRelease;
         public AudioClip HitMarker, HeadshotMarker, KillMarker;
         public AudioClip ImpactHard, ImpactSoft;
         public AudioClip Explosion;
@@ -45,8 +52,6 @@ namespace CombatPrep.Audio
 
         void BuildBank()
         {
-            // Weapon report is rebuilt per-weapon in Rebuild(); this is the default rifle.
-            Shot = Synth.GunShot("Shot", 0.85f, 26f, 150f, 0.7f, 0.22f);
             DryFire = Synth.Click("DryFire", 1.4f, 0.30f);
             MagOut = Synth.Click("MagOut", 0.8f, 0.38f);
             MagIn = Synth.Click("MagIn", 1.0f, 0.45f);
@@ -61,9 +66,6 @@ namespace CombatPrep.Audio
             Explosion = Synth.Explosion("Explosion", 0.95f);
         }
 
-        /// <summary>Regenerates the gunshot for a specific weapon's synth parameters.</summary>
-        public void RebuildShot(float gain, float decay, float bodyHz, float crack, float tail)
-            => Shot = Synth.GunShot("Shot", gain, decay, bodyHz, crack, tail);
 
         public void Play(AudioClip clip, float volume = 1f, float pitchJitter = 0.04f)
         {
@@ -92,23 +94,83 @@ namespace CombatPrep.Audio
             src.Play();
         }
 
-        readonly System.Collections.Generic.Dictionary<Weapons.WeaponDefinition, AudioClip> _shotCache = new();
+        // ------------------------------------------------------------------ gunshots
+
+        /// <summary>One gun's sounds: its takes, played in turn, and the tail layered under them.</summary>
+        sealed class ShotSet
+        {
+            public AudioClip[] Takes;
+            public AudioClip Tail;
+            public float TailGain;
+            public int Next;
+        }
+
+        readonly Dictionary<WeaponDefinition, ShotSet> _shots = new();
+        WeaponDefinition _local;
 
         /// <summary>
-        /// The report for a specific weapon, synthesised once and cached. The shared Shot clip
-        /// only ever holds *your* gun's sound; other players need their own, or a friend's
-        /// shotgun would boom like your SMG.
+        /// Every gun has its own set, built once. A shared clip would make a friend's shotgun
+        /// boom like your SMG.
         /// </summary>
-        public AudioClip ShotFor(Weapons.WeaponDefinition def)
+        ShotSet SetFor(WeaponDefinition def)
         {
-            if (def == null) return Shot;
-            if (!_shotCache.TryGetValue(def, out var clip))
+            if (_shots.TryGetValue(def, out var set)) return set;
+
+            set = new ShotSet();
+            var recorded = ArtLibrary.I != null ? ArtLibrary.I.ShotsFor(def.Id) : null;
+            if (recorded != null)
             {
-                clip = Synth.GunShot("Shot_" + def.DisplayName, def.ShotGain, def.ShotDecay,
-                                     def.ShotBodyHz, def.ShotCrack, def.ShotTail);
-                _shotCache[def] = clip;
+                set.Takes = recorded;
+                // Longer, louder space behind the heavier guns (ShotTail runs 0.22 to 0.40).
+                set.Tail = Synth.ShotTail("Tail_" + def.Id, 0.7f + def.ShotTail * 2.4f, def.Id.GetHashCode());
+                set.TailGain = Mathf.Clamp01(0.12f + def.ShotTail * 0.9f);
             }
+            else
+            {
+                set.Takes = new[] { Synth.GunShot("Shot_" + def.DisplayName, def.ShotGain, def.ShotDecay,
+                                                  def.ShotBodyHz, def.ShotCrack, def.ShotTail) };
+            }
+            // Start each gun on a different take.
+            set.Next = Random.Range(0, set.Takes.Length);
+            _shots[def] = set;
+            return set;
+        }
+
+        /// <summary>The next take, never the same one twice running when there are several.</summary>
+        static AudioClip NextTake(ShotSet set)
+        {
+            var clip = set.Takes[set.Next];
+            if (set.Takes.Length > 1)
+                set.Next = (set.Next + Random.Range(1, set.Takes.Length)) % set.Takes.Length;
             return clip;
+        }
+
+        /// <summary>A report for this gun - distant skirmishes use it too.</summary>
+        public AudioClip ShotFor(WeaponDefinition def) => def == null ? null : NextTake(SetFor(def));
+
+        /// <summary>The gun in your hands, for PlayLocalShot.</summary>
+        public void SetLocalWeapon(WeaponDefinition def)
+        {
+            _local = def;
+            if (def != null) SetFor(def);    // build now rather than on the first trigger pull
+        }
+
+        /// <summary>Your own gunshot: flat in both ears, not placed in the world.</summary>
+        public void PlayLocalShot()
+        {
+            if (_local == null) return;
+            var set = SetFor(_local);
+            Play(NextTake(set), _local.ShotGain, 0.035f);
+            if (set.Tail != null) Play(set.Tail, _local.ShotGain * set.TailGain, 0.06f);
+        }
+
+        /// <summary>Someone else's gunshot, from where their gun is.</summary>
+        public void PlayShotAt(WeaponDefinition def, Vector3 position, float maxDistance = 220f)
+        {
+            if (def == null) return;
+            var set = SetFor(def);
+            PlayAt(NextTake(set), position, def.ShotGain, 0.05f, maxDistance);
+            if (set.Tail != null) PlayAt(set.Tail, position, def.ShotGain * set.TailGain, 0.06f, maxDistance);
         }
 
         AudioSource Take()

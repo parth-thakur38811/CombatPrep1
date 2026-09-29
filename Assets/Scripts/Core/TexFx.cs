@@ -180,6 +180,96 @@ namespace CombatPrep.Core
             return Finish(tex, px32);
         }
 
+        /// <summary>
+        /// A muzzle flash seen head-on: a white-hot core with ragged spikes of fire around it.
+        /// White with the shape in alpha - the material's colour makes it fire.
+        /// </summary>
+        public static Texture2D MuzzleStar(int size = 128, int spikes = 5, int seed = 0)
+        {
+            var tex = NewClamped(size, size, "MuzzleStar");
+            var px = new Color32[size * size];
+            var rng = new System.Random(seed + 17);
+            var angle = new float[spikes];
+            var reach = new float[spikes];
+            for (int k = 0; k < spikes; k++)
+            {
+                angle[k] = (k + (float)rng.NextDouble() * 0.35f) * Mathf.PI * 2f / spikes;
+                reach[k] = 0.62f + (float)rng.NextDouble() * 0.36f;
+            }
+
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x + 0.5f) / size * 2f - 1f, dy = (y + 0.5f) / size * 2f - 1f;
+                float r = Mathf.Sqrt(dx * dx + dy * dy);
+                float ang = Mathf.Atan2(dy, dx);
+                float core = Mathf.Exp(-r * r * 30f);
+                float glow = Mathf.Exp(-r * r * 7f) * 0.4f;
+
+                float spike = 0f;
+                for (int k = 0; k < spikes; k++)
+                {
+                    if (r >= reach[k]) continue;
+                    float d = Mathf.DeltaAngle(ang * Mathf.Rad2Deg, angle[k] * Mathf.Rad2Deg) * Mathf.Deg2Rad;
+                    float width = 0.24f * (1f - r / reach[k]) + 0.02f;
+                    spike = Mathf.Max(spike, Mathf.Exp(-(d / width) * (d / width)) * Mathf.Pow(1f - r / reach[k], 0.7f));
+                }
+                float ragged = 0.65f + 0.35f * Mathf.PerlinNoise(ang * 2.5f + seed, r * 7f);
+                float a = Mathf.Clamp01(core + glow + spike * ragged) * Mathf.Clamp01((1f - r) * 5f);
+                px[y * size + x] = new Color(1f, 1f, 1f, a);
+            }
+            return Finish(tex, px);
+        }
+
+        /// <summary>
+        /// A tracer's cross-section, for a line renderer: a white-hot core inside a soft glow,
+        /// the same all along its length (the line's own colour gradient fades the tail).
+        /// </summary>
+        public static Texture2D TracerGlow(int w = 8, int h = 32)
+        {
+            var tex = NewClamped(w, h, "TracerGlow");
+            var px = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                float v = (y + 0.5f) / h * 2f - 1f;
+                float a = Mathf.Clamp01(Mathf.Exp(-v * v * 22f) * 0.9f + Mathf.Exp(-v * v * 4f) * 0.3f);
+                px[y * w + x] = new Color(1f, 1f, 1f, a);
+            }
+            return Finish(tex, px);
+        }
+
+        /// <summary>
+        /// A bullet hole: a black hole, a ring of crushed, paler material round it, and a few
+        /// short cracks - dark where it's deep, fading out at the edge.
+        /// </summary>
+        public static Texture2D BulletHole(int size = 64, int seed = 0)
+        {
+            var tex = NewClamped(size, size, "BulletHole");
+            var px = new Color32[size * size];
+            float o = seed * 7.7f;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x + 0.5f) / size * 2f - 1f, dy = (y + 0.5f) / size * 2f - 1f;
+                float r = Mathf.Sqrt(dx * dx + dy * dy);
+                float ang = Mathf.Atan2(dy, dx);
+                float n = Mathf.PerlinNoise(ang * 3.3f + o, r * 5f + o);
+
+                float hole = Mathf.SmoothStep(0.26f, 0.17f, r + (n - 0.5f) * 0.08f);
+                float rim = Mathf.Exp(-((r - 0.33f) / 0.1f) * ((r - 0.33f) / 0.1f)) * (0.55f + 0.45f * n);
+                float cracks = Mathf.Pow(Mathf.Max(0f, Mathf.Cos(ang * 6f + n * 3f)), 40f)
+                             * Mathf.SmoothStep(0.85f, 0.3f, r);
+                float halo = Mathf.Exp(-r * r * 5f) * 0.3f;
+
+                float shade = Mathf.Lerp(Mathf.Lerp(0.34f, 0.22f, cracks), 0.02f, hole);
+                float a = Mathf.Clamp01(Mathf.Max(Mathf.Max(hole, rim * 0.85f), Mathf.Max(cracks * 0.7f, halo)))
+                        * Mathf.Clamp01((1f - r) * 4f);
+                px[y * size + x] = new Color(shade, shade * 0.98f, shade * 0.95f, a);
+            }
+            return Finish(tex, px);
+        }
+
         // ------------------------------------------------------------------------ utils
 
         static void Blob(Color[] px, int w, int h, float cx, float cy, float radius, float strength)

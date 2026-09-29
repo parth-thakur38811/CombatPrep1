@@ -53,6 +53,53 @@ namespace CombatPrep.Audio
             return Make(name, data);
         }
 
+        /// <summary>
+        /// The space around a gunshot, to layer under a dry recording: a low rumble rolling
+        /// away across the arena, and two slapback echoes off the berms and containers. It has
+        /// no crack of its own, so it adds weight and distance without smearing the shot.
+        /// </summary>
+        public static AudioClip ShotTail(string name, float seconds, int seed, float gain = 1f)
+        {
+            int n = Mathf.CeilToInt(SampleRate * seconds);
+            var data = new float[n];
+            var rng = new System.Random(seed);
+            float a = Coeff(380f), b = Coeff(1600f);
+            float lp1 = 0f, lp2 = 0f, bp = 0f, bpLow = 0f;
+            float k = 5.5f / seconds;
+            float[] echoes = { 0.19f, 0.43f };
+            float[] echoGain = { 0.55f, 0.3f };
+
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / SampleRate;
+                float noise = (float)rng.NextDouble() * 2f - 1f;
+
+                // Rumble: two-pole low-passed noise, rising over 15 ms, dying away.
+                lp1 += a * (noise - lp1);
+                lp2 += a * (lp1 - lp2);
+                float rumble = lp2 * Mathf.SmoothStep(0f, 1f, t / 0.015f) * Mathf.Exp(-t * k) * 6f;
+
+                // Echoes: short band-limited pops, a little duller each time.
+                bp += b * (noise - bp);
+                bpLow += a * (bp - bpLow);
+                float band = bp - bpLow;
+                float echo = 0f;
+                for (int e = 0; e < echoes.Length; e++)
+                {
+                    float u = t - echoes[e];
+                    if (u > 0f) echo += band * echoGain[e] * Mathf.Exp(-u * 26f) * Mathf.SmoothStep(0f, 1f, u / 0.004f);
+                }
+
+                data[i] = rumble + echo;
+            }
+
+            float peak = 1e-6f;
+            for (int i = 0; i < n; i++) peak = Mathf.Max(peak, Mathf.Abs(data[i]));
+            for (int i = 0; i < n; i++) data[i] = data[i] / peak * gain;
+            Fade(data, 0.002f, 0.08f);
+            return Make(name, data);
+        }
+
         public static AudioClip Impact(string name, float pitch, float gain = 0.5f)
         {
             int n = Mathf.CeilToInt(SampleRate * 0.18f);

@@ -39,7 +39,7 @@ namespace CombatPrep.Core
         [System.Serializable]
         public class Character
         {
-            /// <summary>The skinned model, with a Humanoid avatar on its Animator.</summary>
+            /// <summary>The skinned model. Its Humanoid avatar is built at runtime (HumanoidRig).</summary>
             public GameObject Prefab;
             /// <summary>
             /// Locomotion, crouch, fire and death, built from the Mixamo clips. Null until those
@@ -69,10 +69,53 @@ namespace CombatPrep.Core
 
         [Header("Sky")]
         public Texture Sky;
-        public float SkyExposure = 0.12f;
+        public float SkyExposure = 0.14f;
 
         [Header("Characters")]
         public Character Soldier;
+
+        [System.Serializable]
+        public class WeaponSound
+        {
+            /// <summary>WeaponEntry.Id: carbine, smg, dmr, pistol or shotgun.</summary>
+            public string WeaponId;
+            /// <summary>Several takes of the same gun, so repeated shots don't sound pasted.</summary>
+            public AudioClip[] Shots;
+        }
+
+        [Header("Audio")]
+        public WeaponSound[] WeaponSounds;
+
+        /// <summary>
+        /// The effect prefabs in Prefabs/FX. Made once from FxRecipes by the builder, then left
+        /// alone - so any tuning done to them in the editor sticks.
+        /// </summary>
+        [System.Serializable]
+        public class Effects
+        {
+            public GameObject MuzzleFlash;
+            public GameObject Tracer;
+            public GameObject Impact;
+            public GameObject BulletHole;
+            public GameObject Explosion;
+            public GameObject Rain;
+            public GameObject Fire;
+            public GameObject BurningWreck;
+            public GameObject Puddle;
+        }
+
+        [Header("Effects")]
+        public Effects Fx;
+
+        /// <summary>Recorded gunshots for a weapon, or null to use the synthesised one.</summary>
+        public AudioClip[] ShotsFor(string weaponId)
+        {
+            if (WeaponSounds == null || string.IsNullOrEmpty(weaponId)) return null;
+            foreach (var s in WeaponSounds)
+                if (s != null && s.WeaponId == weaponId && s.Shots != null && s.Shots.Length > 0)
+                    return s.Shots;
+            return null;
+        }
 
         /// <summary>Fingerprint of the source files this was built from; the builder compares it.</summary>
         [HideInInspector] public string SourceStamp;

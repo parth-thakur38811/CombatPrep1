@@ -12,7 +12,9 @@ namespace CombatPrep.UI
     /// scatter.
     ///
     /// Hit reporting is per trigger pull, not per bullet, so a shotgun's nine pellets read
-    /// as one hit with one combined damage number instead of nine of everything.
+    /// as one hit marker instead of nine. The marker says what the hit was - white for the
+    /// body, red for a headshot, bigger and longer for a kill - rather than floating damage
+    /// numbers over the target.
     /// </summary>
     public class Hud : MonoBehaviour
     {
@@ -24,15 +26,17 @@ namespace CombatPrep.UI
         public float LineThickness = 2f;
         public float MinGap = 3f;
 
-        Camera _cam;
         RectTransform _root;
         GameObject _gameplayRoot;
         readonly RectTransform[] _lines = new RectTransform[4];
         Image _dot;
         RectTransform _hitmarker;
         readonly Image[] _hitmarkerLines = new Image[4];
-        float _hitmarkerUntil;
+        float _hitmarkerUntil, _hitmarkerLength = 0.18f;
         Color _hitmarkerColor = Color.white;
+
+        static readonly Color BodyHit = Color.white;
+        static readonly Color HeadHit = new(1f, 0.16f, 0.12f);
 
         Text _ammo, _stats, _weaponName, _grenades;
 
@@ -54,9 +58,6 @@ namespace CombatPrep.UI
         CrosshairStyle _style = CrosshairStyle.Cross;
         bool _crosshairVisible = true;
 
-        readonly List<Text> _damagePool = new();
-        readonly List<Vector3> _damageWorld = new();
-        readonly List<float> _damageExpiry = new();
 
         int _shots, _hits, _headshots, _kills;
 
@@ -71,8 +72,6 @@ namespace CombatPrep.UI
             BuildCanvas();
             SetGameplayVisible(false);
         }
-
-        public void SetCamera(Camera cam) => _cam = cam;
 
         public void SetGameplayVisible(bool visible)
         {
@@ -135,7 +134,7 @@ namespace CombatPrep.UI
                 var img = MakeImage(_hitmarker, $"Hm{i}", Color.white);
                 var rt = img.rectTransform;
                 rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-                rt.sizeDelta = new Vector2(2.5f, 12f);
+                rt.sizeDelta = new Vector2(3f, 13f);
                 float d = 13f;
                 rt.anchoredPosition = i switch
                 {
@@ -421,17 +420,18 @@ namespace CombatPrep.UI
             RefreshStats();
         }
 
-        /// <summary>Combined result of one trigger pull: hitmarker plus one damage number.</summary>
+        /// <summary>
+        /// Combined result of one trigger pull: a hit marker, white for the body and red for a
+        /// headshot. A kill shows it larger and holds it a little longer.
+        /// </summary>
         public void ReportHit(float totalDamage, bool headshot, bool killed, Vector3 point)
         {
-            _hitmarkerColor = killed ? new Color(1f, 0.35f, 0.3f)
-                            : headshot ? new Color(1f, 0.85f, 0.3f)
-                            : Color.white;
-            _hitmarkerUntil = Time.time + 0.11f;
+            _hitmarkerColor = headshot ? HeadHit : BodyHit;
+            _hitmarkerLength = killed ? 0.32f : 0.18f;
+            _hitmarkerUntil = Time.time + _hitmarkerLength;
             _hitmarker.gameObject.SetActive(true);
-            _hitmarker.localScale = Vector3.one * (killed ? 1.35f : 1f);
-
-            SpawnDamageNumber(totalDamage, headshot, point);
+            _hitmarker.localScale = Vector3.one * (killed ? 1.4f : 1f);
+            foreach (var l in _hitmarkerLines) l.color = _hitmarkerColor;
         }
 
         void RefreshStats()
@@ -439,31 +439,6 @@ namespace CombatPrep.UI
             float acc = _shots > 0 ? 100f * _hits / _shots : 0f;
             float hs = _hits > 0 ? 100f * _headshots / _hits : 0f;
             _stats.text = $"Down {_kills}    Acc {acc:0.0}%    HS {hs:0.0}%    Shots {_shots}";
-        }
-
-        void SpawnDamageNumber(float damage, bool headshot, Vector3 point)
-        {
-            Text t = null;
-            for (int i = 0; i < _damagePool.Count; i++)
-                if (!_damagePool[i].gameObject.activeSelf) { t = _damagePool[i]; break; }
-
-            if (t == null)
-            {
-                t = MakeText(_gameplayRoot.transform, "Dmg", 26, TextAnchor.MiddleCenter,
-                             new Vector2(0.5f, 0.5f), Vector2.zero);
-                t.rectTransform.sizeDelta = new Vector2(220f, 40f);
-                _damagePool.Add(t);
-                _damageWorld.Add(Vector3.zero);
-                _damageExpiry.Add(0f);
-            }
-
-            int idx = _damagePool.IndexOf(t);
-            t.gameObject.SetActive(true);
-            t.text = Mathf.RoundToInt(damage).ToString();
-            t.color = headshot ? new Color(1f, 0.85f, 0.3f) : Color.white;
-            t.fontSize = headshot ? 34 : 26;
-            _damageWorld[idx] = point + Random.insideUnitSphere * 0.1f;
-            _damageExpiry[idx] = Time.time + 0.85f;
         }
 
         void LateUpdate()
@@ -476,30 +451,10 @@ namespace CombatPrep.UI
                 if (remain <= 0f) _hitmarker.gameObject.SetActive(false);
                 else
                 {
-                    float a = Mathf.Clamp01(remain / 0.11f);
+                    float a = Mathf.Clamp01(remain / (_hitmarkerLength * 0.6f));
                     var c = _hitmarkerColor; c.a = a;
                     foreach (var l in _hitmarkerLines) l.color = c;
                 }
-            }
-
-            if (_cam == null) return;
-
-            for (int i = 0; i < _damagePool.Count; i++)
-            {
-                var t = _damagePool[i];
-                if (!t.gameObject.activeSelf) continue;
-
-                float remain = _damageExpiry[i] - Time.time;
-                if (remain <= 0f) { t.gameObject.SetActive(false); continue; }
-
-                float age = 0.85f - remain;
-                Vector3 world = _damageWorld[i] + Vector3.up * (age * 0.55f);
-                Vector3 screen = _cam.WorldToScreenPoint(world);
-
-                if (screen.z < 0f) { t.gameObject.SetActive(false); continue; }
-
-                t.rectTransform.position = screen;
-                var c = t.color; c.a = Mathf.Clamp01(remain / 0.45f); t.color = c;
             }
         }
     }

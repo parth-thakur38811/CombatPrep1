@@ -19,9 +19,9 @@ namespace CombatPrep.EditorTools
     /// Builds the online soldier from Assets/Art/Characters (run by ArtBuilder):
     ///
     /// 1. Soldier/russian_soldier.glb, a rigged and skinned glTF model, becomes a mesh, URP
-    ///    materials, a Humanoid avatar and a prefab in Art/Generated/Soldier. Unity doesn't read
-    ///    glTF, and this one file is small and fixed, so it's read here directly rather than
-    ///    through a package.
+    ///    materials and a prefab in Art/Generated/Soldier. Unity doesn't read glTF, and this one
+    ///    file is small and fixed, so it's read here directly rather than through a package.
+    ///    Its Humanoid avatar is built by the game at runtime (Core/HumanoidRig).
     /// 2. Every FBX under Mixamo/ is imported as a Humanoid clip, sorted by its file name into
     ///    idle / walk / run / sprint / crouch / fire / death, and wired into an Animator
     ///    Controller: a blend tree on the soldier's velocity and crouch, an upper-body firing
@@ -108,9 +108,15 @@ namespace CombatPrep.EditorTools
                 // Bounds around the hips, big enough for any pose - lying dead or reaching up.
                 smr.localBounds = new Bounds(Vector3.zero, Vector3.one * 2.6f);
 
-                var avatar = SaveAvatar(BuildAvatar(root), OutDir + "/Soldier_Avatar.asset");
+                // The Humanoid avatar is built by the game itself (HumanoidRig): an avatar saved
+                // as an asset from here dropped out of the player build. Building one now just
+                // proves the joints make a human, so a bad model fails here and not in a match.
+                var check = HumanoidRig.Build(root.gameObject);
+                if (check == null) throw new InvalidDataException("the joints don't make a Humanoid avatar");
+                UnityEngine.Object.DestroyImmediate(check);
+                AssetDatabase.DeleteAsset(OutDir + "/Soldier_Avatar.asset");   // from earlier builds
+
                 var animator = root.gameObject.AddComponent<Animator>();
-                animator.avatar = avatar;
                 animator.applyRootMotion = false;
                 animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
 
@@ -219,7 +225,7 @@ namespace CombatPrep.EditorTools
                 submeshes.Add(tris);
             }
 
-            var mesh = new Mesh { name = string.IsNullOrEmpty(gm.name) ? "Soldier" : gm.name };
+            var mesh = new Mesh { name = "Soldier_Mesh" };
             mesh.indexFormat = positions.Count > 65535 ? IndexFormat.UInt32 : IndexFormat.UInt16;
             mesh.SetVertices(positions);
             mesh.SetNormals(normals);
@@ -309,102 +315,6 @@ namespace CombatPrep.EditorTools
             return tex;
         }
 
-        // ------------------------------------------------------------------ humanoid avatar
-
-        /// <summary>Unity human bone, Mixamo joint.</summary>
-        static readonly (string human, string joint)[] HumanMap =
-        {
-            ("Hips", "Hips"), ("Spine", "Spine"), ("Chest", "Spine1"), ("UpperChest", "Spine2"),
-            ("Neck", "Neck"), ("Head", "Head"),
-            ("LeftShoulder", "LeftShoulder"), ("LeftUpperArm", "LeftArm"),
-            ("LeftLowerArm", "LeftForeArm"), ("LeftHand", "LeftHand"),
-            ("RightShoulder", "RightShoulder"), ("RightUpperArm", "RightArm"),
-            ("RightLowerArm", "RightForeArm"), ("RightHand", "RightHand"),
-            ("LeftUpperLeg", "LeftUpLeg"), ("LeftLowerLeg", "LeftLeg"),
-            ("LeftFoot", "LeftFoot"), ("LeftToes", "LeftToeBase"),
-            ("RightUpperLeg", "RightUpLeg"), ("RightLowerLeg", "RightLeg"),
-            ("RightFoot", "RightFoot"), ("RightToes", "RightToeBase"),
-            ("Left Thumb Proximal", "LeftHandThumb1"), ("Left Thumb Intermediate", "LeftHandThumb2"),
-            ("Left Thumb Distal", "LeftHandThumb3"),
-            ("Left Index Proximal", "LeftHandIndex1"), ("Left Index Intermediate", "LeftHandIndex2"),
-            ("Left Index Distal", "LeftHandIndex3"),
-            ("Left Middle Proximal", "LeftHandMiddle1"), ("Left Middle Intermediate", "LeftHandMiddle2"),
-            ("Left Middle Distal", "LeftHandMiddle3"),
-            ("Right Thumb Proximal", "RightHandThumb1"), ("Right Thumb Intermediate", "RightHandThumb2"),
-            ("Right Thumb Distal", "RightHandThumb3"),
-            ("Right Index Proximal", "RightHandIndex1"), ("Right Index Intermediate", "RightHandIndex2"),
-            ("Right Index Distal", "RightHandIndex3"),
-            ("Right Middle Proximal", "RightHandMiddle1"), ("Right Middle Intermediate", "RightHandMiddle2"),
-            ("Right Middle Distal", "RightHandMiddle3"),
-        };
-
-        /// <summary>
-        /// A Humanoid avatar, so any Mixamo clip retargets onto the soldier. The reference pose is
-        /// the model's bind pose with the arms straightened out level - Unity measures every
-        /// animation against a T-pose, and this model's arms droop about six degrees.
-        /// </summary>
-        static Avatar BuildAvatar(Transform root)
-        {
-            var all = root.GetComponentsInChildren<Transform>(true);
-            var byName = new Dictionary<string, Transform>();
-            foreach (var t in all) byName[t.name] = t;
-
-            var known = new HashSet<string>(HumanTrait.BoneName);
-            var human = new List<HumanBone>();
-            foreach (var (humanName, joint) in HumanMap)
-            {
-                if (!known.Contains(humanName) || !byName.ContainsKey(joint)) continue;
-                human.Add(new HumanBone
-                {
-                    humanName = humanName,
-                    boneName = joint,
-                    limit = new HumanLimit { useDefaultValues = true }
-                });
-            }
-
-            var saved = all.Select(t => t.localRotation).ToArray();
-            Straighten(byName, "LeftArm", "LeftForeArm", -root.right);
-            Straighten(byName, "LeftForeArm", "LeftHand", -root.right);
-            Straighten(byName, "RightArm", "RightForeArm", root.right);
-            Straighten(byName, "RightForeArm", "RightHand", root.right);
-
-            var skeleton = all.Select(t => new SkeletonBone
-            {
-                name = t.name,
-                position = t.localPosition,
-                rotation = t.localRotation,
-                scale = t.localScale
-            }).ToArray();
-
-            for (int i = 0; i < all.Length; i++) all[i].localRotation = saved[i];
-
-            var desc = new HumanDescription
-            {
-                human = human.ToArray(),
-                skeleton = skeleton,
-                upperArmTwist = 0.5f,
-                lowerArmTwist = 0.5f,
-                upperLegTwist = 0.5f,
-                lowerLegTwist = 0.5f,
-                armStretch = 0.05f,
-                legStretch = 0.05f,
-                feetSpacing = 0f,
-                hasTranslationDoF = false
-            };
-
-            var avatar = UnityEngine.AvatarBuilder.BuildHumanAvatar(root.gameObject, desc);
-            avatar.name = "Soldier_Avatar";
-            if (!avatar.isValid || !avatar.isHuman)
-                throw new InvalidOperationException("the skeleton did not make a valid Humanoid avatar");
-            return avatar;
-        }
-
-        static void Straighten(Dictionary<string, Transform> bones, string bone, string child, Vector3 direction)
-        {
-            if (!bones.TryGetValue(bone, out var b) || !bones.TryGetValue(child, out var c)) return;
-            b.rotation = Quaternion.FromToRotation(c.position - b.position, direction) * b.rotation;
-        }
-
         // ------------------------------------------------------------------ saving
 
         /// <summary>Updates the mesh asset in place, so its GUID - and the prefab's reference - stay put.</summary>
@@ -420,13 +330,6 @@ namespace CombatPrep.EditorTools
             UnityEngine.Object.DestroyImmediate(mesh);
             EditorUtility.SetDirty(existing);
             return existing;
-        }
-
-        static Avatar SaveAvatar(Avatar avatar, string path)
-        {
-            AssetDatabase.DeleteAsset(path);
-            AssetDatabase.CreateAsset(avatar, path);
-            return avatar;
         }
 
         // =================================================================== animations
@@ -553,12 +456,15 @@ namespace CombatPrep.EditorTools
             var idle = Pick(Gait.Idle);
             var walk = Dirs(Gait.Walk);
             var run = Dirs(Gait.Run);
-            var sprint = Pick(Gait.Sprint);
+            var sprint = Dirs(Gait.Sprint).Where(c => c.Dir.y > 0.1f).ToList();
             var crouchIdle = Pick(Gait.CrouchIdle);
             var crouchWalk = Dirs(Gait.CrouchWalk);
             var fire = clips.Where(c => c.Gait == Gait.Fire)
                             .OrderBy(c => c.File.ToLowerInvariant().Contains("crouch")).FirstOrDefault();
-            var death = Pick(Gait.Death);
+            var death = clips.Where(c => c.Gait == Gait.Death)
+                             .OrderBy(c => c.File.ToLowerInvariant().Contains("crouch"))
+                             .ThenByDescending(c => c.File.ToLowerInvariant().Contains("front"))
+                             .FirstOrDefault();
 
             if (idle == null && walk.Count == 0 && run.Count == 0)
             {
@@ -580,16 +486,20 @@ namespace CombatPrep.EditorTools
 
             // --- base layer: locomotion, blended between standing and crouched ---
             var sm = controller.layers[0].stateMachine;
+            // Without sprint clips, the forward run stretches to sprint speed instead.
+            if (sprint.Count == 0)
+                sprint = run.Where(c => c.Dir == Vector2.up).ToList();
             var stand = LocomotionTree(controller, "Stand", idle, new[]
             {
                 // Clips are timed to the speeds players actually move at: walking pace is the
                 // slow, aimed walk; the default move speed is a run.
                 (walk, run.Count > 0 ? PlayerMotor.DefaultAdsSpeed : PlayerMotor.DefaultWalkSpeed),
                 (run, PlayerMotor.DefaultWalkSpeed),
-            }, sprint ?? run.FirstOrDefault(c => c.Dir == Vector2.up));
+                (sprint, PlayerMotor.DefaultSprintSpeed),
+            });
             var crouched = crouchIdle != null || crouchWalk.Count > 0
                 ? LocomotionTree(controller, "Crouch", crouchIdle ?? idle,
-                                 new[] { (crouchWalk, PlayerMotor.DefaultCrouchSpeed) }, null)
+                                 new[] { (crouchWalk, PlayerMotor.DefaultCrouchSpeed) })
                 : stand;
 
             var locomotion = new BlendTree
@@ -660,8 +570,69 @@ namespace CombatPrep.EditorTools
 
             Debug.Log($"<b>CombatPrep</b>: soldier animations built from {clips.Count} Mixamo clips - " +
                       $"idle {(idle != null ? "yes" : "no")}, walk {walk.Count}, run {run.Count}, " +
-                      $"sprint {(sprint != null ? "yes" : "no")}, crouch {(crouchIdle != null ? 1 : 0) + crouchWalk.Count}, " +
+                      $"sprint {sprint.Count}, crouch {(crouchIdle != null ? 1 : 0) + crouchWalk.Count}, " +
                       $"fire {(fire != null ? "yes" : "no")}, death {(death != null ? "yes" : "no")}.");
+
+            SelfTest(character);
+        }
+
+        /// <summary>
+        /// Poses a copy of the soldier the way the game does - runtime avatar, this controller -
+        /// and logs where the body ends up standing and crouched, so a broken rig or retarget
+        /// shows in the Console now rather than in a match.
+        /// </summary>
+        static void SelfTest(ArtLibrary.Character character)
+        {
+            var scene = EditorSceneManager.NewPreviewScene();
+            Avatar avatar = null;
+            try
+            {
+                var go = (GameObject)PrefabUtility.InstantiatePrefab(character.Prefab, scene);
+                avatar = HumanoidRig.Build(go);
+                var a = go.GetComponent<Animator>();
+                if (avatar == null || a == null)
+                {
+                    Debug.LogWarning("[Art] soldier self-test: no Humanoid avatar.");
+                    return;
+                }
+                a.avatar = avatar;
+                a.runtimeAnimatorController = character.Controller;
+                a.Rebind();
+
+                string Pose(string label)
+                {
+                    Vector3 P(HumanBodyBones b)
+                    {
+                        var t = a.GetBoneTransform(b);
+                        return t != null ? go.transform.InverseTransformPoint(t.position) : Vector3.zero;
+                    }
+                    Vector3 r = P(HumanBodyBones.RightHand), l = P(HumanBodyBones.LeftHand);
+                    return $"{label}: hips {P(HumanBodyBones.Hips).y:F2} m, head {P(HumanBodyBones.Head).y:F2} m, " +
+                           $"right hand {r.x:F2},{r.y:F2},{r.z:F2}, left hand {l.x:F2},{l.y:F2},{l.z:F2}, " +
+                           $"hands {Vector3.Distance(r, l):F2} m apart";
+                }
+
+                a.SetFloat("Crouch", 0f);
+                a.Update(0f);
+                a.Update(0.5f);
+                string standing = Pose("standing");
+
+                a.SetFloat("Crouch", 1f);
+                a.Update(0.5f);
+                a.Update(0.5f);
+                string crouched = Pose("crouched");
+
+                Debug.Log($"<b>CombatPrep</b>: soldier self-test - {standing}; {crouched}.");
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Art] soldier self-test failed: {e.Message}");
+            }
+            finally
+            {
+                if (avatar != null) UnityEngine.Object.DestroyImmediate(avatar);
+                EditorSceneManager.ClosePreviewScene(scene);
+            }
         }
 
         /// <summary>
@@ -671,7 +642,7 @@ namespace CombatPrep.EditorTools
         /// played in reverse.
         /// </summary>
         static BlendTree LocomotionTree(AnimatorController controller, string name, Clip idle,
-                                        (List<Clip> clips, float speed)[] gaits, Clip top)
+                                        (List<Clip> clips, float speed)[] gaits)
         {
             var tree = new BlendTree
             {
@@ -701,7 +672,6 @@ namespace CombatPrep.EditorTools
                 if (forward != null && !clips.Any(c => c.Dir.y < -0.5f))
                     Add(forward.Anim, Vector2.down, speed, -1f);
             }
-            if (top != null) Add(top.Anim, Vector2.up, PlayerMotor.DefaultSprintSpeed);
 
             var children = tree.children;
             for (int i = 0; i < children.Length; i++) children[i].timeScale = scales[i];

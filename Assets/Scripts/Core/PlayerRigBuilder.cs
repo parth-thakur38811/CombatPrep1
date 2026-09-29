@@ -84,8 +84,6 @@ namespace CombatPrep.Core
             look.Body = root.transform;
             look.Cam = cam;
 
-            Hud.I.SetCamera(cam);
-
             var rig = new PlayerRig
             {
                 Root = root, Cam = cam, Look = look, Motor = motor, Shake = shake

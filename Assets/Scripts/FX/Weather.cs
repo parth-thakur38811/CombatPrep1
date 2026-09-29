@@ -42,7 +42,7 @@ namespace CombatPrep.FX
         float _nextCoverCheck;
 
         /// <summary>What rain lands on: world geometry, never players, debris or the invisible walls.</summary>
-        static int WorldMask => ~((1 << PlayerRigBuilder.PlayerLayer) | (1 << PlayerRigBuilder.RemotePlayerLayer)
+        public static int WorldMask => ~((1 << PlayerRigBuilder.PlayerLayer) | (1 << PlayerRigBuilder.RemotePlayerLayer)
                                   | (1 << FxSystem.DebrisLayer) | (1 << RangeBuilder.BoundaryLayer)
                                   | (1 << 2));   // Ignore Raycast
 
@@ -55,127 +55,21 @@ namespace CombatPrep.FX
 
         // ------------------------------------------------------------------------ rain
 
+        /// <summary>The rain prefab (Prefabs/FX/Rain), or the same effect built from its recipe.</summary>
         void BuildRain()
         {
-            _rain = ParticleKit.New(transform, "Rain", Vector3.zero, 11u,
-                                    Mat.Particle(Tex.RainStreak(), additive: false, soft: false));
+            var prefab = ArtLibrary.I != null && ArtLibrary.I.Fx != null ? ArtLibrary.I.Fx.Rain : null;
+            var go = prefab != null ? Instantiate(prefab) : FxRecipes.Rain(DropsPerSecond, Area);
+            go.name = "Rain";
+            go.transform.SetParent(transform, false);
+            _rain = go.GetComponent<ParticleSystem>();
 
-            var main = _rain.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(1.25f, 1.5f);
-            main.startSpeed = 0f;
-            main.startSize = new ParticleSystem.MinMaxCurve(0.018f, 0.03f);
-            main.startColor = new Color(0.70f, 0.76f, 0.84f, 0.26f);
-            main.maxParticles = 7000;
-
-            var em = _rain.emission;
-            em.rateOverTime = DropsPerSecond;
-
-            var sh = _rain.shape;
-            sh.shapeType = ParticleSystemShapeType.Box;
-            sh.scale = new Vector3(Area, 0.2f, Area);
-
-            // Fall speed and slant come from velocity, not start speed, so the wind is in world
-            // space no matter how the emitter is oriented.
-            var vel = _rain.velocityOverLifetime;
-            vel.enabled = true;
-            vel.space = ParticleSystemSimulationSpace.World;
-            vel.x = new ParticleSystem.MinMaxCurve(Wind.x * 0.85f, Wind.x * 1.15f);
-            vel.y = new ParticleSystem.MinMaxCurve(-19f, -15.5f);
-            vel.z = new ParticleSystem.MinMaxCurve(Wind.z * 0.85f, Wind.z * 1.15f);
-
+            // Layers are the code's to define, so the drops always land on the current world.
             var col = _rain.collision;
-            col.enabled = true;
-            col.type = ParticleSystemCollisionType.World;
-            col.mode = ParticleSystemCollisionMode.Collision3D;
-            col.quality = ParticleSystemCollisionQuality.Medium;   // Low misses thin roofs
             col.collidesWith = WorldMask;
-            col.lifetimeLoss = 1f;
-            col.bounce = 0f;
-            col.dampen = 1f;
-            col.radiusScale = 0.5f;
-            col.enableDynamicColliders = false;
-            col.maxCollisionShapes = 128;
 
-            var r = _rain.GetComponent<ParticleSystemRenderer>();
-            r.renderMode = ParticleSystemRenderMode.Stretch;
-            r.velocityScale = 0.045f;
-            r.lengthScale = 2.2f;
-            r.cameraVelocityScale = 0f;
-
-            var subs = _rain.subEmitters;
-            subs.enabled = true;
-            subs.AddSubEmitter(BuildSplash(), ParticleSystemSubEmitterType.Collision,
-                               ParticleSystemSubEmitterProperties.InheritNothing, 0.35f);
-            subs.AddSubEmitter(BuildRipple(), ParticleSystemSubEmitterType.Collision,
-                               ParticleSystemSubEmitterProperties.InheritNothing, 0.22f);
-        }
-
-        /// <summary>A couple of droplets kicked up where a drop lands.</summary>
-        ParticleSystem BuildSplash()
-        {
-            var ps = ParticleKit.New(_rain.transform, "Splash", Vector3.zero, 12u,
-                                     Mat.Particle(Tex.SoftDot(32, 3f), additive: false, soft: false));
-            var main = ps.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.16f, 0.3f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.9f, 2.0f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.02f, 0.045f);
-            main.startColor = new Color(0.75f, 0.80f, 0.86f, 0.45f);
-            main.gravityModifier = 1.6f;
-            main.maxParticles = 1500;
-
-            var em = ps.emission;
-            em.rateOverTime = 0f;
-            em.SetBursts(new[] { new ParticleSystem.Burst(0f, 2, 3) });
-
-            var sh = ps.shape;
-            sh.shapeType = ParticleSystemShapeType.Cone;
-            sh.angle = 32f;
-            sh.radius = 0.01f;
-            sh.rotation = new Vector3(-90f, 0f, 0f);
-
-            var col = ps.colorOverLifetime;
-            col.enabled = true;
-            col.color = ParticleKit.Gradient(new[] { (0f, Color.white), (1f, Color.white) },
-                                             new[] { (0f, 1f), (1f, 0f) });
-            return ps;
-        }
-
-        /// <summary>
-        /// A ring spreading on the surface. Lifted a couple of centimetres so it can't
-        /// z-fight the ground, and deliberately not a soft particle: soft particles fade where
-        /// they meet geometry, and a ripple is nothing but meeting geometry.
-        /// </summary>
-        ParticleSystem BuildRipple()
-        {
-            var ps = ParticleKit.New(_rain.transform, "Ripple", Vector3.zero, 13u,
-                                     Mat.Particle(Tex.Ring(), additive: false, soft: false));
-            var main = ps.main;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.35f, 0.5f);
-            main.startSpeed = 0f;
-            main.startSize = new ParticleSystem.MinMaxCurve(0.24f, 0.36f);
-            main.startColor = new Color(0.80f, 0.85f, 0.90f, 0.30f);
-            main.maxParticles = 900;
-
-            var em = ps.emission;
-            em.rateOverTime = 0f;
-            em.SetBursts(new[] { new ParticleSystem.Burst(0f, 1) });
-
-            var sh = ps.shape;
-            sh.shapeType = ParticleSystemShapeType.Sphere;
-            sh.radius = 0.0001f;
-            sh.position = new Vector3(0f, 0.02f, 0f);
-
-            var size = ps.sizeOverLifetime;
-            size.enabled = true;
-            size.size = ParticleKit.Curve((0f, 0.15f), (1f, 1f));
-
-            var col = ps.colorOverLifetime;
-            col.enabled = true;
-            col.color = ParticleKit.Gradient(new[] { (0f, Color.white), (1f, Color.white) },
-                                             new[] { (0f, 1f), (1f, 0f) });
-
-            ps.GetComponent<ParticleSystemRenderer>().renderMode = ParticleSystemRenderMode.HorizontalBillboard;
-            return ps;
+            // Held until LateUpdate has found the camera and moved the emitter over it.
+            _rain.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         }
 
         // ----------------------------------------------------------------------- sound

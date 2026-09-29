@@ -8,6 +8,17 @@ using CombatPrep.UI;
 
 namespace CombatPrep.Weapons
 {
+    /// <summary>What one grenade object is for.</summary>
+    public enum GrenadeRole
+    {
+        /// <summary>Practice: flies, explodes and damages targets itself.</summary>
+        Practice,
+        /// <summary>Online, on every screen: flies and bounces, but the server decides the blast.</summary>
+        Visual,
+        /// <summary>Online, on the server only and unseen: the real one, whose fuse sets off the blast.</summary>
+        Authority
+    }
+
     /// <summary>
     /// A thrown fragmentation grenade: rigidbody flight, fuse, then a radial blast with
     /// four damage bands.
@@ -15,34 +26,91 @@ namespace CombatPrep.Weapons
     /// Flight uses a plain Rigidbody under standard gravity with no drag, which matters
     /// because the aiming arc is drawn by integrating that same parabola. Adding drag here
     /// without adding it to the preview would make the red line quietly lie.
+    ///
+    /// Online, one throw becomes several grenades: an unseen Authority copy on the server,
+    /// whose fuse sets off the blast and the damage (NetPlayer), and a Visual copy on every
+    /// screen that just flies until the server says where it went off.
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
     public class Grenade : MonoBehaviour
     {
+        // The standard frag, shared by the thrower's settings and the server's blast.
+        public const float DefaultFuse = 2.4f;
+        public const float DefaultClose = 3.5f, DefaultMedium = 6.5f, DefaultOuter = 10f;
+        public const float DefaultDamage = 120f;
+
+        /// <summary>Grenades fly on the debris layer: bullets pass through them, and they don't hit each other.</summary>
+        public static int Layer => FxSystem.DebrisLayer;
+
         [Header("Fuse")]
-        public float FuseSeconds = 2.4f;
+        public float FuseSeconds = DefaultFuse;
 
         [Header("Blast bands (metres)")]
-        public float CloseRadius = 3.5f;    // 100% damage
-        public float MediumRadius = 6.5f;   //  50%
-        public float OuterRadius = 10f;     //  25%, and nothing past it
+        public float CloseRadius = DefaultClose;    // 100% damage
+        public float MediumRadius = DefaultMedium;  //  50%
+        public float OuterRadius = DefaultOuter;    //  25%, and nothing past it
 
         [Header("Damage")]
-        public float BaseDamage = 120f;
+        public float BaseDamage = DefaultDamage;
 
         public LayerMask BlastMask = ~0;
+        public GrenadeRole Role = GrenadeRole.Practice;
+
+        /// <summary>Authority grenades: called at the end of the fuse with where it went off.</summary>
+        public System.Action<Vector3> Detonated;
 
         Rigidbody _rb;
         float _explodeAt;
         bool _spent;
 
         /// <summary>Fraction of BaseDamage at a given distance from the blast centre.</summary>
-        public float FalloffAt(float distance)
+        public float FalloffAt(float distance) => Falloff(distance, CloseRadius, MediumRadius, OuterRadius);
+
+        /// <summary>The standard frag's falloff: 100 / 50 / 25 % bands, nothing beyond.</summary>
+        public static float DefaultFalloff(float distance) => Falloff(distance, DefaultClose, DefaultMedium, DefaultOuter);
+
+        static float Falloff(float distance, float close, float medium, float outer)
         {
-            if (distance <= CloseRadius) return 1f;
-            if (distance <= MediumRadius) return 0.5f;
-            if (distance <= OuterRadius) return 0.25f;
+            if (distance <= close) return 1f;
+            if (distance <= medium) return 0.5f;
+            if (distance <= outer) return 0.25f;
             return 0f;
+        }
+
+        // ------------------------------------------------------------------ spawning
+
+        /// <summary>A grenade in flight. Authority grenades have no model - nobody sees them.</summary>
+        public static Grenade Spawn(Vector3 origin, Vector3 velocity, GrenadeRole role, LayerMask blastMask)
+        {
+            var go = new GameObject(role == GrenadeRole.Authority ? "GrenadeAuthority" : "Grenade");
+            go.transform.position = origin;
+            go.layer = Layer;
+            Physics.IgnoreLayerCollision(Layer, Layer, true);   // the server's two copies overlap
+            if (role != GrenadeRole.Authority) BuildModel(go.transform);
+
+            var col = go.AddComponent<SphereCollider>();
+            col.radius = 0.055f;
+
+            var nade = go.AddComponent<Grenade>();
+            nade.Role = role;
+            nade.Launch(origin, velocity, blastMask);
+            return nade;
+        }
+
+        // Visual grenades by (thrower, throw number), so the server's word can find them.
+        static readonly Dictionary<(ulong, int), Grenade> Visuals = new();
+
+        public static void SpawnVisual(ulong thrower, int id, Vector3 origin, Vector3 velocity)
+        {
+            RemoveVisual(thrower, id);
+            Visuals[(thrower, id)] = Spawn(origin, velocity, GrenadeRole.Visual, 0);
+        }
+
+        public static void RemoveVisual(ulong thrower, int id)
+        {
+            if (!Visuals.TryGetValue((thrower, id), out var g)) return;
+            Visuals.Remove((thrower, id));
+            if (g != null) Destroy(g.gameObject);
         }
 
         void Awake()
@@ -76,8 +144,24 @@ namespace CombatPrep.Weapons
 
         void Update()
         {
-            if (_spent || Time.time < _explodeAt) return;
-            Explode();
+            if (_spent) return;
+            switch (Role)
+            {
+                case GrenadeRole.Practice:
+                    if (Time.time >= _explodeAt) Explode();
+                    break;
+                case GrenadeRole.Authority:
+                    if (Time.time < _explodeAt) break;
+                    _spent = true;
+                    Detonated?.Invoke(transform.position);
+                    Destroy(gameObject);
+                    break;
+                case GrenadeRole.Visual:
+                    // The server's explosion normally removes it first; this only catches a
+                    // grenade whose thrower left mid-flight.
+                    if (Time.time >= _explodeAt + 3f) Destroy(gameObject);
+                    break;
+            }
         }
 
         void Explode()

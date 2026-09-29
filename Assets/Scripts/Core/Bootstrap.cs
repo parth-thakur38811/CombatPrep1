@@ -1,8 +1,11 @@
+using System;
+using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using CombatPrep.Audio;
 using CombatPrep.FX;
+using CombatPrep.Net;
 using CombatPrep.Player;
 using CombatPrep.Skins;
 using CombatPrep.Targets;
@@ -19,14 +22,28 @@ namespace CombatPrep.Core
     /// </summary>
     public class Bootstrap : MonoBehaviour
     {
-        public const int PlayerLayer = 8;
+        public const int PlayerLayer = PlayerRigBuilder.PlayerLayer;
+
+        /// <summary>
+        /// Never read at runtime - it exists only to be referenced by the scene. Unity strips
+        /// from a build every shader no asset references, and this project creates all of its
+        /// materials in code, so without these the build would ship with no URP shaders and
+        /// crash on its first `new Material`. Each generated material enables exactly one
+        /// keyword combination the code uses (plain, emission, transparent, additive, sky),
+        /// because URP only compiles an optional variant if some material asks for it.
+        /// Filled in by CombatPrep > Build Range Scene.
+        /// </summary>
+        public Material[] ShaderKeepAlive;
 
         GameObject _systems;
         ListenerRig _listenerRig;
         MainMenu _menu;
+        LobbyMenu _lobby;
         GameObject _playerRoot;
         GameObject _targetsRoot;
-        bool _inGame;
+        bool _inGame;       // practice
+        bool _online;       // in an online match
+        bool _leaving;
 
         void Awake()
         {
@@ -38,13 +55,37 @@ namespace CombatPrep.Core
             Lighting();
             RangeBuilder.Build();
             PostFx();
+
+            NetPlayer.LocalRigBuilt += OnLocalRigBuilt;
+            SessionService.SessionEnded += OnSessionEnded;
+
             ShowMenu();
+        }
+
+        /// <summary>
+        /// Netcode callbacks are hooked in Start, not Awake: the scene's NetworkManager sets
+        /// NetworkManager.Singleton in its own OnEnable, which may run after this Awake.
+        /// </summary>
+        void Start()
+        {
+            if (NetworkManager.Singleton != null)
+                NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+        }
+
+        void OnDestroy()
+        {
+            NetPlayer.LocalRigBuilt -= OnLocalRigBuilt;
+            SessionService.SessionEnded -= OnSessionEnded;
+            if (NetworkManager.Singleton != null)
+                NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnect;
         }
 
         void Update()
         {
-            if (GameInput.I == null) return;
-            if (_inGame && GameInput.I.PausePress) ReturnToMenu();
+            if (GameInput.I == null || !GameInput.I.PausePress) return;
+
+            if (_inGame) ReturnToMenu();
+            else if (_online) LeaveOnline(null);
         }
 
         // ---------------------------------------------------------------------- systems
@@ -55,6 +96,8 @@ namespace CombatPrep.Core
             _systems.AddComponent<GameInput>();
             _systems.AddComponent<GameAudio>();
             _systems.AddComponent<FxSystem>();
+            _systems.AddComponent<Storm>();
+            _systems.AddComponent<Weather>();
             _systems.AddComponent<Hud>();
 
             // One listener for the whole session. It stays parented here forever and
@@ -68,45 +111,55 @@ namespace CombatPrep.Core
 
         // --------------------------------------------------------------------- lighting
 
+        /// <summary>
+        /// Storm light. One cold, high key light standing in for a sun buried in cloud: soft,
+        /// weak shadows, because overcast light comes from everywhere. Ambient does most of the
+        /// work, and dense exponential fog - the same colour as the sky's horizon - eats the
+        /// distance so ruins fade out instead of ending. Storm owns the sky and borrows this
+        /// light for lightning.
+        /// </summary>
         void Lighting()
         {
-            var sunGo = new GameObject("Sun");
-            var sun = sunGo.AddComponent<Light>();
-            sun.type = LightType.Directional;
-            sun.color = new Color(1f, 0.94f, 0.83f);
-            sun.intensity = 1.75f;
-            sun.shadows = LightShadows.Soft;
-            sun.shadowStrength = 0.78f;
-            // Low-ish sun: long shadows across the range read as far more finished than a
-            // noon sun that flattens everything.
-            sunGo.transform.rotation = Quaternion.Euler(34f, 152f, 0f);
+            var keyGo = new GameObject("StormLight");
+            var key = keyGo.AddComponent<Light>();
+            key.type = LightType.Directional;
+            key.color = new Color(0.66f, 0.74f, 0.86f);
+            key.intensity = 0.7f;
+            key.shadows = LightShadows.Soft;
+            key.shadowStrength = 0.55f;
+            keyGo.transform.rotation = Quaternion.Euler(58f, 200f, 0f);
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.50f, 0.58f, 0.72f);
-            RenderSettings.ambientEquatorColor = new Color(0.46f, 0.42f, 0.36f);
-            RenderSettings.ambientGroundColor = new Color(0.28f, 0.23f, 0.17f);
+            RenderSettings.ambientSkyColor = new Color(0.25f, 0.28f, 0.33f);
+            RenderSettings.ambientEquatorColor = new Color(0.17f, 0.18f, 0.20f);
+            RenderSettings.ambientGroundColor = new Color(0.08f, 0.08f, 0.085f);
 
             RenderSettings.fog = true;
-            RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogColor = new Color(0.74f, 0.72f, 0.66f);
-            RenderSettings.fogStartDistance = 70f;
-            RenderSettings.fogEndDistance = 340f;
+            RenderSettings.fogMode = FogMode.ExponentialSquared;
+            RenderSettings.fogColor = Storm.Horizon;
+            RenderSettings.fogDensity = 0.0105f;
 
-            var skyShader = Shader.Find("Skybox/Procedural");
+            // Fallback sky, only if the storm shader didn't make it into a build.
+            var skyShader = Mat.Require("Skybox/Procedural");
             if (skyShader != null)
             {
                 var sky = new Material(skyShader);
-                sky.SetFloat("_SunSize", 0.045f);
-                sky.SetFloat("_SunSizeConvergence", 4f);
-                sky.SetFloat("_AtmosphereThickness", 1.15f);
-                sky.SetColor("_SkyTint", new Color(0.52f, 0.60f, 0.74f));
-                sky.SetColor("_GroundColor", new Color(0.42f, 0.37f, 0.30f));
-                sky.SetFloat("_Exposure", 1.25f);
+                sky.SetFloat("_SunSize", 0f);
+                sky.SetFloat("_AtmosphereThickness", 0.6f);
+                sky.SetColor("_SkyTint", new Color(0.30f, 0.32f, 0.36f));
+                sky.SetColor("_GroundColor", new Color(0.12f, 0.12f, 0.13f));
+                sky.SetFloat("_Exposure", 0.35f);
                 RenderSettings.skybox = sky;
-                RenderSettings.sun = sun;
             }
+
+            Storm.I.Setup(key);
         }
 
+        /// <summary>
+        /// The grade that makes it a war film rather than a wet afternoon: cooled, drained of
+        /// colour, pushed contrast, grain, a heavy vignette, and bloom with a dirty lens so
+        /// muzzle flashes, fires and lightning flare across the grime on the glass.
+        /// </summary>
         void PostFx()
         {
             var go = new GameObject("PostFx");
@@ -123,19 +176,38 @@ namespace CombatPrep.Core
             tone.mode.Override(TonemappingMode.ACES);
 
             var bloom = profile.Add<Bloom>(true);
-            bloom.intensity.Override(0.55f);
-            bloom.threshold.Override(1.05f);
-            bloom.scatter.Override(0.62f);
+            bloom.intensity.Override(0.85f);
+            bloom.threshold.Override(0.95f);
+            bloom.scatter.Override(0.7f);
+            bloom.dirtTexture.Override(Tex.LensDirt());
+            bloom.dirtIntensity.Override(2.2f);
 
             var color = profile.Add<ColorAdjustments>(true);
-            color.postExposure.Override(0.20f);
-            color.contrast.Override(14f);
-            color.saturation.Override(6f);
-            color.colorFilter.Override(new Color(1f, 0.98f, 0.93f));
+            color.postExposure.Override(0.1f);
+            color.contrast.Override(18f);
+            color.saturation.Override(-30f);
+            color.colorFilter.Override(new Color(0.92f, 0.96f, 1f));
+
+            var balance = profile.Add<WhiteBalance>(true);
+            balance.temperature.Override(-12f);
+            balance.tint.Override(3f);
+
+            // Cold shadows, a faint warmth kept in the highlights so fire still reads as fire.
+            var smh = profile.Add<ShadowsMidtonesHighlights>(true);
+            smh.shadows.Override(new Vector4(0.93f, 0.98f, 1.08f, -0.03f));
+            smh.highlights.Override(new Vector4(1.04f, 1.0f, 0.96f, 0f));
 
             var vig = profile.Add<Vignette>(true);
-            vig.intensity.Override(0.28f);
-            vig.smoothness.Override(0.45f);
+            vig.intensity.Override(0.36f);
+            vig.smoothness.Override(0.5f);
+
+            var grain = profile.Add<FilmGrain>(true);
+            grain.type.Override(FilmGrainLookup.Medium3);
+            grain.intensity.Override(0.22f);
+            grain.response.Override(0.75f);
+
+            var aberration = profile.Add<ChromaticAberration>(true);
+            aberration.intensity.Override(0.06f);
         }
 
         /// <summary>URP renders post-processing per camera, so every camera must opt in.</summary>
@@ -153,11 +225,13 @@ namespace CombatPrep.Core
         void ShowMenu()
         {
             _inGame = false;
+            _online = false;
 
             var go = new GameObject("MainMenu");
             go.transform.SetParent(transform, false);
             _menu = go.AddComponent<MainMenu>();
             _menu.OnStart += StartGame;
+            _menu.OnPlayOnline += PlayOnline;
 
             // Park the listener on the preview camera while the menu is up.
             if (_menu.PreviewCamera != null)
@@ -168,18 +242,103 @@ namespace CombatPrep.Core
             Hud.I.SetGameplayVisible(false);
         }
 
-        void StartGame(WeaponEntry entry, SkinDefinition skin)
+        void CloseMenu()
         {
             if (_menu != null) { Destroy(_menu.gameObject); _menu = null; }
+        }
 
-            var rig = BuildPlayer();
-            BuildWeapon(rig, entry, skin);
-            BuildTargets();
-
+        void EnterGameplay()
+        {
             Hud.I.SetGameplayVisible(true);
             Hud.I.ResetStats();
+            Hud.I.ResetMatchUi();
             GameInput.LockCursor(true);
+        }
+
+        /// <summary>Practice: the offline range with targets.</summary>
+        void StartGame(WeaponEntry entry, SkinDefinition skin)
+        {
+            CloseMenu();
+
+            var root = new GameObject("Player");
+            root.transform.position = new Vector3(0f, 0.2f, -3f);
+            _playerRoot = root;
+            PlayerRigBuilder.Build(root, entry, skin);
+
+            BuildTargets();
+            EnterGameplay();
+            Hud.I.SetHealthVisible(false);   // targets can't shoot back
             _inGame = true;
+        }
+
+        // ------------------------------------------------------------------ online flow
+
+        /// <summary>Carry the chosen loadout into the online lobby.</summary>
+        void PlayOnline(WeaponEntry entry, SkinDefinition skin)
+        {
+            CloseMenu();
+            NetPlayer.PendingWeapon = Mathf.Max(0, Array.IndexOf(WeaponLibrary.All, entry));
+            NetPlayer.PendingSkin = Mathf.Max(0, Array.IndexOf(SkinLibrary.All, skin));
+            _leaving = false;
+
+            var go = new GameObject("LobbyMenu");
+            go.transform.SetParent(transform, false);
+            _lobby = go.AddComponent<LobbyMenu>();
+            _lobby.OnBack += () => { CloseLobby(); ShowMenu(); };
+            _lobby.OnLeave += () => LeaveOnline(null);
+
+            Hud.I.SetGameplayVisible(false);
+        }
+
+        void CloseLobby()
+        {
+            if (_lobby != null) { Destroy(_lobby.gameObject); _lobby = null; }
+        }
+
+        /// <summary>The host started the match and our own player's rig now exists.</summary>
+        void OnLocalRigBuilt(PlayerRig rig)
+        {
+            CloseLobby();
+            EnterGameplay();
+            _online = true;
+        }
+
+        /// <summary>
+        /// Leaves the session and shuts Netcode down, which despawns every networked object -
+        /// including our own rig - then returns to the main menu, optionally explaining why.
+        /// Guarded, because a host quitting can raise both a session and a netcode event.
+        /// </summary>
+        async void LeaveOnline(string notice)
+        {
+            if (_leaving) return;
+            _leaving = true;
+            _online = false;
+            _listenerRig.Follow = null;
+
+            await SessionService.LeaveAsync();
+
+            var nm = NetworkManager.Singleton;
+            if (nm != null && nm.IsListening) nm.Shutdown();
+
+            CloseLobby();
+            MainMenu.PendingNotice = notice;
+            ShowMenu();
+            _leaving = false;
+        }
+
+        void OnSessionEnded() => LeaveOnline("The session ended - the host may have left.");
+
+        void OnClientDisconnect(ulong clientId)
+        {
+            var nm = NetworkManager.Singleton;
+            // Only react when *we* are the one cut off. The host sees every client leave here
+            // too, but their player objects simply despawn and the match carries on.
+            if (nm == null || nm.IsServer || clientId != nm.LocalClientId) return;
+
+            string reason = string.IsNullOrEmpty(nm.DisconnectReason)
+                ? "Lost connection to the host."
+                : nm.DisconnectReason;
+            LeaveOnline(reason);
         }
 
         void ReturnToMenu()
@@ -194,99 +353,6 @@ namespace CombatPrep.Core
             if (_targetsRoot != null) { Destroy(_targetsRoot); _targetsRoot = null; }
 
             ShowMenu();
-        }
-
-        // ----------------------------------------------------------------------- player
-
-        struct PlayerRig
-        {
-            public GameObject Root;
-            public Camera Cam;
-            public PlayerLook Look;
-            public PlayerMotor Motor;
-            public CameraShake Shake;
-        }
-
-        PlayerRig BuildPlayer()
-        {
-            var playerGo = new GameObject("Player");
-            playerGo.layer = PlayerLayer;
-            playerGo.transform.position = new Vector3(0f, 0.2f, -3f);
-            _playerRoot = playerGo;
-
-            var cc = playerGo.AddComponent<CharacterController>();
-            cc.radius = 0.34f;
-            cc.height = 1.8f;
-            cc.center = new Vector3(0f, 0.9f, 0f);
-            cc.slopeLimit = 50f;
-            cc.stepOffset = 0.35f;
-            cc.skinWidth = 0.02f;
-
-            var motor = playerGo.AddComponent<PlayerMotor>();
-
-            var pivot = Prim.Empty(playerGo.transform, "CameraPivot", new Vector3(0f, 1.62f, 0f));
-            motor.CameraPivot = pivot;
-
-            var shakeGo = Prim.Empty(pivot, "ShakeRoot");
-            var shake = shakeGo.gameObject.AddComponent<CameraShake>();
-
-            var camGo = new GameObject("MainCamera");
-            camGo.tag = "MainCamera";
-            camGo.transform.SetParent(shakeGo, false);
-            var cam = camGo.AddComponent<Camera>();
-            cam.fieldOfView = 78f;
-            cam.nearClipPlane = 0.012f;
-            cam.farClipPlane = 600f;
-            ConfigureCamera(cam);
-
-            _listenerRig.Follow = camGo.transform;
-
-            var look = playerGo.AddComponent<PlayerLook>();
-            look.Body = playerGo.transform;
-            look.Cam = cam;
-
-            Hud.I.SetCamera(cam);
-
-            return new PlayerRig { Root = playerGo, Cam = cam, Look = look, Motor = motor, Shake = shake };
-        }
-
-        void BuildWeapon(PlayerRig rig, WeaponEntry entry, SkinDefinition skin)
-        {
-            var holder = Prim.Empty(rig.Cam.transform, "WeaponHolder");
-            var anim = holder.gameObject.AddComponent<WeaponAnimator>();
-
-            var model = WeaponModelBuilder.Build(holder, entry.Shape);
-            SkinApplier.Apply(model, skin);
-            anim.Init(entry.Def, model, rig.Motor);
-
-            var weapon = holder.gameObject.AddComponent<Weapon>();
-            weapon.Cam = rig.Cam;
-            weapon.Look = rig.Look;
-            weapon.Motor = rig.Motor;
-            weapon.Shake = rig.Shake;
-            // Never trace against ourselves, and let rounds pass through spent debris and
-            // the invisible play-area walls - otherwise misses would spark in mid-air.
-            int hitMask = ~((1 << PlayerLayer)
-                          | (1 << FxSystem.DebrisLayer)
-                          | (1 << RangeBuilder.BoundaryLayer));
-            weapon.HitMask = hitMask;
-            weapon.Init(entry.Def, model, anim);
-
-            // Grenade loadout lives on the same holder. It disables the weapon's model while
-            // equipped, and blast/arc casts share the weapon's hit mask so they respect the
-            // same walls and debris rules.
-            var thrower = holder.gameObject.AddComponent<GrenadeThrower>();
-            thrower.Cam = rig.Cam;
-            thrower.Motor = rig.Motor;
-            thrower.WeaponHolder = model.Root.gameObject;
-            thrower.Weapon = weapon;
-            // Blast damage and line-of-sight ignore the boundary walls (they only ring the
-            // arena's edge). The arc preview must instead include them, so it bounces off
-            // exactly what the thrown grenade physically bounces off - everything but the
-            // player and spent debris.
-            thrower.BlastMask = hitMask;
-            thrower.ArcMask = ~((1 << PlayerLayer) | (1 << FxSystem.DebrisLayer));
-            thrower.Init();
         }
 
         // ---------------------------------------------------------------------- targets

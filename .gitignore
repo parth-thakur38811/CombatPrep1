@@ -54,7 +54,22 @@ sysinfo.txt
 # Standalone Windows player builds exported into the project folder
 # (CombatPrep1/CombatPrep1.exe + _Data + DirectML.dll, ~126 MB - never commit)
 /CombatPrep1/
+/cb4/
+/cbp3/
 *_BurstDebugInformation_DoNotShip/
+
+# ...and the pieces of any other build folder, whatever it gets named
+*.exe
+UnityPlayer.dll
+DirectML.dll
+dstorage*.dll
+*_Data/
+MonoBleedingEdge/
+D3D12/
+
+# Unity's crash-recovery copy of an unsaved scene
+/Assets/_Recovery/
+/Assets/_Recovery.meta
 
 # ---------------------------------------------------------------------------
 # OS cruft

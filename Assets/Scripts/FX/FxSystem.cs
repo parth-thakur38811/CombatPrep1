@@ -47,8 +47,7 @@ namespace CombatPrep.FX
         /// <summary>URP/Unlit switched to additive blending in code - no shader asset needed.</summary>
         static Material MakeAdditive(Color c)
         {
-            var sh = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color");
-            var m = new Material(sh);
+            var m = new Material(Mat.UnlitShader);
             m.SetColor("_BaseColor", c);
             m.SetFloat("_Surface", 1f);                                  // transparent
             m.SetFloat("_Blend", 2f);                                    // additive
@@ -121,7 +120,8 @@ namespace CombatPrep.FX
         /// target board) so the hole travels with them instead of hanging in world space.
         /// </summary>
         public void Impact(Vector3 point, Vector3 normal, Color surfaceTint,
-                           Transform attachTo = null, int debrisCount = -1, bool spark = true)
+                           Transform attachTo = null, int debrisCount = -1, bool spark = true,
+                           bool hole = true)
         {
             if (spark)
             {
@@ -145,7 +145,29 @@ namespace CombatPrep.FX
                 Destroy(d.gameObject, 2.2f);
             }
 
-            BulletHole(point, normal, attachTo);
+            if (hole) BulletHole(point, normal, attachTo);
+        }
+
+        /// <summary>
+        /// A muzzle flash at an arbitrary gun - another player's. The local MuzzleFlash is
+        /// welded to our own weapon's light, so remote shots get a short-lived flash and light
+        /// of their own at the avatar's muzzle.
+        /// </summary>
+        public void RemoteMuzzleFlash(Vector3 position)
+        {
+            var flash = Prim.Ball(transform, "RemoteFlash", position, Random.Range(0.10f, 0.15f), TracerColor, 0f, 1f);
+            flash.GetComponent<MeshRenderer>().sharedMaterial = _additive;
+            Destroy(flash.gameObject, 0.045f);
+
+            var lightGo = new GameObject("RemoteFlashLight");
+            lightGo.transform.SetParent(transform, false);
+            lightGo.transform.position = position;
+            var light = lightGo.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(1f, 0.78f, 0.45f);
+            light.range = 6f;
+            light.intensity = 9f;
+            Destroy(lightGo, 0.05f);
         }
 
         void BulletHole(Vector3 point, Vector3 normal, Transform attachTo)

@@ -96,7 +96,7 @@ namespace CombatPrep.Weapons
         {
             // A target has several hitzone colliders, so collect the nearest hit per target
             // and resolve once - otherwise a grenade would deal its damage three times over.
-            var nearest = new Dictionary<Target, (float dist, Vector3 point, Zone zone)>();
+            var nearest = new Dictionary<IDamageable, (float dist, Vector3 point, Zone zone)>();
 
             foreach (var col in Physics.OverlapSphere(centre, OuterRadius, BlastMask,
                                                       QueryTriggerInteraction.Ignore))
@@ -125,12 +125,15 @@ namespace CombatPrep.Weapons
                 var info = kv.Key.ApplyDamage(BaseDamage * fraction, Zone.Body,
                                               kv.Value.point, dir, 1f, 1f, kv.Value.dist);
 
-                Hud.I.ReportHit(info.Damage, false, info.Killed, kv.Value.point);
+                // Something that declined the damage (a remote player, whose blast damage the
+                // server resolves) mustn't flash a hitmarker for a hit that never landed.
+                if (info.Damage > 0f)
+                    Hud.I.ReportHit(info.Damage, false, info.Killed, kv.Value.point);
             }
         }
 
         /// <summary>Solid geometry between the blast and the target shields it.</summary>
-        bool HasLineOfSight(Vector3 centre, Vector3 point, Target owner)
+        bool HasLineOfSight(Vector3 centre, Vector3 point, IDamageable owner)
         {
             Vector3 delta = point - centre;
             float dist = delta.magnitude;

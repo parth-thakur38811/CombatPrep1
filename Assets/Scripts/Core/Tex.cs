@@ -8,7 +8,7 @@ namespace CombatPrep.Core
     /// actually look like something: paper targets with printed silhouettes and scoring
     /// rings, weapon skins, ground and concrete surfaces.
     /// </summary>
-    public static class Tex
+    public static partial class Tex
     {
         // ------------------------------------------------------------------ target sheet
 

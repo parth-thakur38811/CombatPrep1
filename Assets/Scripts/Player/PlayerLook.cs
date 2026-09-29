@@ -39,6 +39,25 @@ namespace CombatPrep.Player
         public Vector3 AimOrigin => Cam.transform.position;
         public Vector3 AimForward => Cam.transform.forward;
 
+        /// <summary>
+        /// Start from whatever way the body already faces. LateUpdate rewrites the body's
+        /// rotation from _yaw every frame, so without this a player placed at a spawn point
+        /// would snap round to face world-forward on their first frame.
+        /// Start rather than Awake: Body is assigned just after AddComponent.
+        /// </summary>
+        void Start()
+        {
+            if (Body != null) _yaw = Body.eulerAngles.y;
+        }
+
+        /// <summary>Face a new direction with a level, recoil-free view - used on respawn.</summary>
+        public void ResetView(float yaw)
+        {
+            _yaw = yaw;
+            _pitch = 0f;
+            ResetRecoil();
+        }
+
         void LateUpdate()
         {
             float dt = Time.deltaTime;

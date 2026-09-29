@@ -106,5 +106,114 @@ namespace CombatPrep.Core
             go.transform.localPosition = pos;
             return go.transform;
         }
+
+        // ------------------------------------------------------------ imported art
+
+        /// <summary>
+        /// A box wearing an imported PBR surface at true scale (see MeshGen.Box). Built at
+        /// unit scale around its own mesh, so its collider is the mesh bounds. With no art
+        /// library it falls back to a plain Box in <paramref name="fallback"/>, so every caller
+        /// works on a bare checkout.
+        /// </summary>
+        public static Transform Surface(Transform parent, string name, Vector3 pos, Vector3 size,
+                                        ArtLibrary.Surface surface, Material fallback,
+                                        bool collider = false, Vector3 euler = default)
+        {
+            if (!ArtLibrary.Has(surface))
+            {
+                var b = Box(parent, name, pos, size, Color.white, 0f, 0.3f, collider, euler);
+                SetMaterial(b, fallback);
+                return b;
+            }
+
+            var go = new GameObject(name);
+            var t = go.transform;
+            t.SetParent(parent, false);
+            t.localPosition = pos;
+            t.localEulerAngles = euler;
+            go.AddComponent<MeshFilter>().sharedMesh = MeshGen.Box(size, surface.TileMeters);
+            go.AddComponent<MeshRenderer>().sharedMaterial = surface.Material;
+            if (collider) go.AddComponent<BoxCollider>();   // sizes itself to the mesh
+            return t;
+        }
+
+        /// <summary>Surface with a flat-colour fallback, for callers that never had a texture.</summary>
+        public static Transform Surface(Transform parent, string name, Vector3 pos, Vector3 size,
+                                        ArtLibrary.Surface surface, Color fallback, float metallic, float smoothness,
+                                        bool collider = false, Vector3 euler = default)
+            => Surface(parent, name, pos, size, surface, Mat.Get(fallback, metallic, smoothness), collider, euler);
+
+        public enum Pivot { Base, Centre }
+
+        /// <summary>
+        /// An imported prop, scaled to its real-world height, wearing its material, with one
+        /// box collider around the whole thing so bullets and players both stop at it.
+        ///
+        /// Models come with whatever origin their author left, so each one is wrapped in a
+        /// pivot object: its origin is the model's base centre (sits on the ground wherever it
+        /// is placed) or its middle (for things that get turned over, like a tyre laid flat).
+        /// </summary>
+        public static Transform Prop(Transform parent, string name, ArtLibrary.Prop prop, Vector3 pos,
+                                     Quaternion rotation, bool collider = true, float scale = 1f,
+                                     Pivot pivot = Pivot.Base)
+        {
+            // Measured at the world origin, unrotated, before it joins the hierarchy - a world
+            // AABB taken under a rotated parent would come out too big.
+            // The model keeps its own root rotation and scale - that is how its importer left it
+            // standing upright - and only moves to the origin.
+            var model = Object.Instantiate(prop.Model);
+            model.name = "Model";
+            var m = model.transform;
+            m.position = Vector3.zero;
+
+            var renderers = model.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in renderers) r.sharedMaterial = prop.Material;
+
+            // Guard against an importer unit mismatch (cm vs m): trust the published size.
+            var bounds = WorldBounds(renderers);
+            if (prop.Size.y > 0f && bounds.size.y > 0.001f)
+            {
+                float fix = prop.Size.y / bounds.size.y;
+                if (fix < 0.5f || fix > 2f)
+                {
+                    m.localScale *= fix;
+                    bounds = WorldBounds(renderers);
+                }
+            }
+
+            var root = new GameObject(name).transform;
+            var anchor = pivot == Pivot.Base
+                ? new Vector3(bounds.center.x, bounds.min.y, bounds.center.z)
+                : bounds.center;
+            m.SetParent(root, true);          // root sits at the origin, so world == local here
+            m.localPosition = -anchor;
+
+            if (collider)
+            {
+                var box = root.gameObject.AddComponent<BoxCollider>();
+                box.center = bounds.center - anchor;
+                box.size = bounds.size;
+            }
+
+            root.localScale = Vector3.one * scale;
+            root.SetParent(parent, false);
+            root.localPosition = pos;
+            root.localRotation = rotation;
+            return root;
+        }
+
+        /// <summary>World-space renderer bounds of a model sitting unrotated at the origin.</summary>
+        static Bounds WorldBounds(Renderer[] renderers)
+        {
+            var b = new Bounds();
+            bool any = false;
+            foreach (var r in renderers)
+            {
+                if (r is ParticleSystemRenderer) continue;
+                if (!any) { b = r.bounds; any = true; }
+                else b.Encapsulate(r.bounds);
+            }
+            return any ? b : new Bounds(Vector3.zero, Vector3.one);
+        }
     }
 }

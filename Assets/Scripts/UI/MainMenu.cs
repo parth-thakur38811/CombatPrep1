@@ -22,6 +22,10 @@ namespace CombatPrep.UI
     public class MainMenu : MonoBehaviour
     {
         public event Action<WeaponEntry, SkinDefinition> OnStart;
+        public event Action<WeaponEntry, SkinDefinition> OnPlayOnline;
+
+        /// <summary>A message to show once the next time the menu opens (e.g. why a session ended).</summary>
+        public static string PendingNotice;
 
         static readonly Vector3 StagePosition = new Vector3(0f, -500f, 0f);
 
@@ -65,7 +69,7 @@ namespace CombatPrep.UI
             if (_stage != null) Destroy(_stage.gameObject);
         }
 
-        static void EnsureEventSystem()
+        public static void EnsureEventSystem()
         {
             if (EventSystem.current != null) return;
 
@@ -224,16 +228,27 @@ namespace CombatPrep.UI
 
         void Footer()
         {
-            var start = Button_("DEPLOY", new Vector2(0.5f, 0f), new Vector2(0f, 74f), new Vector2(320f, 72f), 30,
-                                () =>
-                                {
-                                    OnStart?.Invoke(Weapon, Skin);
-                                });
-            start.image.color = new Color(0.82f, 0.36f, 0.08f, 0.95f);
+            // Practice: today's offline range with targets. Play Online: take this loadout
+            // into a 4-player lobby.
+            var practice = Button_("PRACTICE", new Vector2(0.5f, 0f), new Vector2(-175f, 74f), new Vector2(320f, 72f), 28,
+                                   () => OnStart?.Invoke(Weapon, Skin));
+            practice.image.color = new Color(1f, 1f, 1f, 0.16f);
 
-            var hint = Text_("WASD move   ·   RMB aim   ·   R reload   ·   SHIFT sprint   ·   CTRL crouch   ·   ESC loadout",
+            var online = Button_("PLAY ONLINE", new Vector2(0.5f, 0f), new Vector2(175f, 74f), new Vector2(320f, 72f), 28,
+                                 () => OnPlayOnline?.Invoke(Weapon, Skin));
+            online.image.color = new Color(0.82f, 0.36f, 0.08f, 0.95f);
+
+            var hint = Text_("WASD move   ·   RMB aim   ·   R reload   ·   G grenade   ·   SHIFT sprint   ·   CTRL crouch   ·   ESC menu",
                              17, TextAnchor.LowerCenter, new Vector2(0.5f, 0f), new Vector2(0f, 30f), 1400f);
             hint.color = new Color(1f, 1f, 1f, 0.42f);
+
+            // One-shot message carried back from an online session (e.g. "The host left").
+            if (!string.IsNullOrEmpty(PendingNotice))
+            {
+                var notice = Text_(PendingNotice, 22, TextAnchor.LowerCenter, new Vector2(0.5f, 0f), new Vector2(0f, 162f), 1200f);
+                notice.color = new Color(1f, 0.45f, 0.35f);
+                PendingNotice = null;
+            }
         }
 
         void RefreshSelection()

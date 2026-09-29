@@ -35,6 +35,21 @@ namespace CombatPrep.UI
         Color _hitmarkerColor = Color.white;
 
         Text _ammo, _stats, _weaponName, _grenades;
+
+        // --- online match UI ---
+        GameObject _healthPanel;
+        RectTransform _healthFill;
+        Image _healthFillImg;
+        Text _healthText;
+        Image _damageFlash;
+        float _flashAlpha;
+        GameObject _deathPanel;
+        Text _deathBy, _deathTimer;
+        float _respawnAt;
+        readonly List<(Text text, float expiry)> _feed = new();
+        const float HealthBarWidth = 320f;
+        const int MaxFeedLines = 5;
+        const float FeedSeconds = 6f;
         Font _font;
         CrosshairStyle _style = CrosshairStyle.Cross;
         bool _crosshairVisible = true;
@@ -144,6 +159,161 @@ namespace CombatPrep.UI
             // Grenade count, stacked above the weapon name in the bottom-right corner.
             _grenades = MakeText(parent, "Grenades", 22, TextAnchor.LowerRight, new Vector2(1f, 0f), new Vector2(-48f, 138f));
             _grenades.color = new Color(0.75f, 0.85f, 0.65f, 0.85f);
+
+            BuildMatchUi(parent);
+        }
+
+        /// <summary>
+        /// Online-only elements: health bar, hit flash, death screen and kill feed. Built
+        /// last so the full-screen overlays draw above the crosshair and ammo.
+        /// </summary>
+        void BuildMatchUi(Transform parent)
+        {
+            // --- health: bottom-left bar with the number above it ---
+            _healthPanel = new GameObject("Health", typeof(RectTransform));
+            _healthPanel.transform.SetParent(parent, false);
+            var hp = _healthPanel.GetComponent<RectTransform>();
+            hp.anchorMin = hp.anchorMax = hp.pivot = new Vector2(0f, 0f);
+            hp.anchoredPosition = new Vector2(48f, 44f);
+            hp.sizeDelta = new Vector2(HealthBarWidth, 60f);
+
+            var back = MakeImage(_healthPanel.transform, "Back", new Color(0f, 0f, 0f, 0.45f));
+            Anchor(back.rectTransform, new Vector2(0f, 0f), Vector2.zero, new Vector2(HealthBarWidth, 14f));
+
+            _healthFillImg = MakeImage(_healthPanel.transform, "Fill", new Color(0.35f, 0.9f, 0.45f, 0.95f));
+            _healthFill = _healthFillImg.rectTransform;
+            Anchor(_healthFill, new Vector2(0f, 0f), Vector2.zero, new Vector2(HealthBarWidth, 14f));
+
+            _healthText = MakeText(_healthPanel.transform, "HP", 34, TextAnchor.LowerLeft, new Vector2(0f, 0f), new Vector2(0f, 20f));
+
+            _healthPanel.SetActive(false);
+
+            // --- red flash when hit ---
+            _damageFlash = MakeImage(parent, "DamageFlash", new Color(0.8f, 0.05f, 0.05f, 0f));
+            Stretch(_damageFlash.rectTransform);
+
+            // --- death screen ---
+            _deathPanel = new GameObject("Death", typeof(RectTransform));
+            _deathPanel.transform.SetParent(parent, false);
+            Stretch(_deathPanel.GetComponent<RectTransform>());
+
+            var shade = MakeImage(_deathPanel.transform, "Shade", new Color(0.12f, 0.02f, 0.02f, 0.6f));
+            Stretch(shade.rectTransform);
+
+            var title = MakeText(_deathPanel.transform, "Title", 56, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), new Vector2(0f, 60f));
+            title.text = "ELIMINATED";
+            title.color = new Color(1f, 0.32f, 0.26f);
+            _deathBy = MakeText(_deathPanel.transform, "By", 28, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), new Vector2(0f, 0f));
+            _deathTimer = MakeText(_deathPanel.transform, "Timer", 22, TextAnchor.MiddleCenter, new Vector2(0.5f, 0.5f), new Vector2(0f, -50f));
+            _deathTimer.color = new Color(1f, 1f, 1f, 0.65f);
+
+            _deathPanel.SetActive(false);
+        }
+
+        static void Anchor(RectTransform rt, Vector2 anchor, Vector2 pos, Vector2 size)
+        {
+            rt.anchorMin = rt.anchorMax = rt.pivot = anchor;
+            rt.anchoredPosition = pos;
+            rt.sizeDelta = size;
+        }
+
+        static void Stretch(RectTransform rt)
+        {
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.one;
+            rt.offsetMin = rt.offsetMax = Vector2.zero;
+        }
+
+        // ------------------------------------------------------------ online match API
+
+        public void SetHealthVisible(bool visible)
+        {
+            if (_healthPanel != null) _healthPanel.SetActive(visible);
+        }
+
+        public void SetHealth(float health)
+        {
+            float t = Mathf.Clamp01(health / 100f);
+            _healthFill.sizeDelta = new Vector2(HealthBarWidth * t, 14f);
+            _healthText.text = Mathf.CeilToInt(health).ToString();
+            // Green when healthy, through amber, to red when critical.
+            _healthFillImg.color = t > 0.5f
+                ? Color.Lerp(new Color(1f, 0.75f, 0.2f), new Color(0.35f, 0.9f, 0.45f), (t - 0.5f) * 2f)
+                : Color.Lerp(new Color(0.95f, 0.2f, 0.15f), new Color(1f, 0.75f, 0.2f), t * 2f);
+        }
+
+        public void DamageFlash() => _flashAlpha = 0.32f;
+
+        public void ShowDeath(string killer, float respawnSeconds)
+        {
+            _deathBy.text = "by " + killer;
+            _respawnAt = Time.time + respawnSeconds;
+            _deathPanel.SetActive(true);
+            SetCrosshairVisible(false);
+        }
+
+        public void HideDeath()
+        {
+            _deathPanel.SetActive(false);
+            SetCrosshairVisible(true);
+        }
+
+        /// <summary>Top-right feed line: "killer  x  victim", newest on top, fading after a few seconds.</summary>
+        public void AddKillFeed(string killer, string victim)
+        {
+            var t = MakeText(_gameplayRoot.transform, "Feed", 21, TextAnchor.UpperRight, new Vector2(1f, 1f), Vector2.zero);
+            t.supportRichText = true;
+            t.text = killer == victim
+                ? $"<color=#ff8a70>{victim}</color> was eliminated"
+                : $"{killer}   <color=#ff5a4a>x</color>   <color=#ff8a70>{victim}</color>";
+            _feed.Insert(0, (t, Time.time + FeedSeconds));
+
+            while (_feed.Count > MaxFeedLines)
+            {
+                Destroy(_feed[_feed.Count - 1].text.gameObject);
+                _feed.RemoveAt(_feed.Count - 1);
+            }
+            LayoutFeed();
+        }
+
+        void LayoutFeed()
+        {
+            for (int i = 0; i < _feed.Count; i++)
+                _feed[i].text.rectTransform.anchoredPosition = new Vector2(-40f, -36f - i * 30f);
+        }
+
+        /// <summary>Clears death screen, flash and kill feed - called whenever gameplay starts.</summary>
+        public void ResetMatchUi()
+        {
+            if (_deathPanel != null) _deathPanel.SetActive(false);
+            _flashAlpha = 0f;
+            foreach (var (text, _) in _feed) if (text != null) Destroy(text.gameObject);
+            _feed.Clear();
+        }
+
+        void UpdateMatchUi()
+        {
+            if (_flashAlpha > 0f)
+            {
+                _flashAlpha = Mathf.Max(0f, _flashAlpha - Time.deltaTime * 0.8f);
+                var c = _damageFlash.color; c.a = _flashAlpha; _damageFlash.color = c;
+            }
+
+            if (_deathPanel.activeSelf)
+                _deathTimer.text = $"Respawning in {Mathf.Max(0, Mathf.CeilToInt(_respawnAt - Time.time))}";
+
+            for (int i = _feed.Count - 1; i >= 0; i--)
+            {
+                float remain = _feed[i].expiry - Time.time;
+                if (remain <= 0f)
+                {
+                    Destroy(_feed[i].text.gameObject);
+                    _feed.RemoveAt(i);
+                    LayoutFeed();
+                    continue;
+                }
+                var c = _feed[i].text.color; c.a = Mathf.Clamp01(remain); _feed[i].text.color = c;
+            }
         }
 
         public Image MakeImage(Transform parent, string name, Color color)
@@ -298,6 +468,8 @@ namespace CombatPrep.UI
 
         void LateUpdate()
         {
+            UpdateMatchUi();
+
             if (_hitmarker.gameObject.activeSelf)
             {
                 float remain = _hitmarkerUntil - Time.time;

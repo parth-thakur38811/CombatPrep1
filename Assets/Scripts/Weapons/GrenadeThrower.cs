@@ -138,6 +138,21 @@ namespace CombatPrep.Weapons
             if (_charging) DrawArc();
         }
 
+        /// <summary>Back to 4 - online, each respawn starts with a full set.</summary>
+        public void Refill()
+        {
+            _count = StartingCount;
+            Hud.I.SetGrenades(_count);
+        }
+
+        /// <summary>Puts a held grenade away without throwing it (e.g. on death).</summary>
+        public void Holster()
+        {
+            if (_equipped) Toggle();
+            _charging = false;
+            ShowPreview(false);
+        }
+
         void Toggle()
         {
             if (!_equipped && _count <= 0) return;

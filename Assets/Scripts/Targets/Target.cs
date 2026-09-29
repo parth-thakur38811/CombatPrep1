@@ -6,16 +6,20 @@ namespace CombatPrep.Targets
 {
     public enum Zone { Body, Head, Limb }
 
-    /// <summary>Per-part collider that routes damage back to its Target with a zone multiplier.</summary>
+    /// <summary>
+    /// Per-part collider that routes damage to whatever owns it - a paper target or a player -
+    /// with a zone multiplier. Owner is assigned in code at build time, so it can be an
+    /// interface even though Unity can't serialize one.
+    /// </summary>
     public class HitZone : MonoBehaviour
     {
-        public Target Owner;
+        public IDamageable Owner;
         public Zone Zone = Zone.Body;
     }
 
     public struct HitInfo
     {
-        public Target Target;
+        public IDamageable Target;
         public float Damage;
         public Zone Zone;
         public bool Killed;
@@ -28,9 +32,12 @@ namespace CombatPrep.Targets
     /// it flat downrange, where it stays for a beat before popping back up. The swing is the
     /// feedback - it is legible from any distance, which a colour flash is not.
     /// </summary>
-    public class Target : MonoBehaviour
+    public class Target : MonoBehaviour, IDamageable
     {
         public static event Action<HitInfo> OnAnyHit;
+
+        /// <summary>Holes stick to the board, so they swing and drop with it.</summary>
+        public Transform HoleAnchor => Board;
 
         [Header("Health")]
         public float MaxHealth = 100f;

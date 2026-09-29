@@ -1,11 +1,16 @@
 # CombatPrep
 
-A first-person shooting range made in Unity, built under one rule: **nothing is downloaded
-or imported.**
+A first-person shooting range made in Unity. It started under one rule: **nothing is
+downloaded or imported.**
 
 No 3D models, no textures, no sound files, no fonts. Every gun, every target, every sand
 dune and every gunshot is created by code while the game is running. The Unity scene file
 contains a single empty object — everything else is built from scratch when you press Play.
+
+The latest version turns the range into a rain-soaked war zone at dusk. For that I relaxed the
+rule for surfaces: the ground, concrete, containers, sandbags, the sky and a few props now use
+free, public-domain textures and models from [Poly Haven](https://polyhaven.com) (listed in
+[CREDITS.md](CREDITS.md)). The guns, sounds, rain, fire and lightning are still made in code.
 
 > **How this was made:** I planned the project, decided what to build, played each version
 > and worked out what needed fixing. The code itself was written with the help of
@@ -25,12 +30,15 @@ It turns out you can get quite far:
 
 - **Guns** are built from about 25 of Unity's basic shapes — cubes, cylinders and spheres —
   stacked into a rifle.
-- **Textures** are drawn pixel by pixel in code: camouflage patterns, rusted metal, sand,
-  concrete, and the printed paper target sheets.
+- **Textures** are drawn pixel by pixel in code: camouflage patterns, rusted metal, and the
+  printed paper target sheets. (Sand and concrete were too, until the war-zone update.)
 - **Sounds** are generated as raw audio. A gunshot is three layers mixed together — a sharp
   crack, a low thump, and the echo afterwards.
 - **The range itself** — dunes, shipping containers, sandbags, barrels — is assembled by a
   script when the game starts.
+- **The storm** is code as well: rain that stops at roofs and splashes where it lands,
+  lightning that throws shadows across the arena, thunder that arrives a few seconds later,
+  and fires and smoke burning on the horizon.
 
 ## What's in it
 

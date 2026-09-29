@@ -1,0 +1,90 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b7c03985bdc8bd04d81ad134661bf7ed, type: 3}
+  m_Name: ArtLibrary
+  m_EditorClassIdentifier: Assembly-CSharp::CombatPrep.Core.ArtLibrary
+  Ground:
+    Material: {fileID: 2100000, guid: e728695749249e2478b8a383be084969, type: 2}
+    TileMeters: 2.2
+    ImpactColor: {r: 0.25663397, g: 0.22743578, b: 0.18341084, a: 1}
+  Berm:
+    Material: {fileID: 2100000, guid: b1ef279b4f5a74341b301534dcec7a20, type: 2}
+    TileMeters: 2.5
+    ImpactColor: {r: 0.34680378, g: 0.30263075, b: 0.25775802, a: 1}
+  Floor:
+    Material: {fileID: 2100000, guid: 36790123e38da414190032a5a78c63f7, type: 2}
+    TileMeters: 4.5
+    ImpactColor: {r: 0.24118702, g: 0.19809034, b: 0.15287368, a: 1}
+  Concrete:
+    Material: {fileID: 2100000, guid: e3bc9ed75e6912a44836ae50391956c2, type: 2}
+    TileMeters: 2
+    ImpactColor: {r: 0.32399493, g: 0.31607214, b: 0.30092245, a: 1}
+  Rubble:
+    Material: {fileID: 2100000, guid: 114bde62c581eea4481c568b0368a2ff, type: 2}
+    TileMeters: 2
+    ImpactColor: {r: 0.44681334, g: 0.40942386, b: 0.36758748, a: 1}
+  ContainerA:
+    Material: {fileID: 2100000, guid: 4463c2e4bb5e1524ebfd5ef7e74af93c, type: 2}
+    TileMeters: 1.94
+    ImpactColor: {r: 0.36337808, g: 0.5352943, b: 0.31632218, a: 1}
+  ContainerB:
+    Material: {fileID: 2100000, guid: 17b8b3796f4cc4a428554381008879de, type: 2}
+    TileMeters: 1.94
+    ImpactColor: {r: 0.29070246, g: 0.34258834, b: 0.17714041, a: 1}
+  ContainerC:
+    Material: {fileID: 2100000, guid: eb109d86ee5b638409349aedd04c9e06, type: 2}
+    TileMeters: 1.94
+    ImpactColor: {r: 0.22529441, g: 0.374706, b: 0.25938419, a: 1}
+  SandbagA:
+    Material: {fileID: 2100000, guid: dc0932d4127b6474eb8ca6fbf2dc8640, type: 2}
+    TileMeters: 0.27
+    ImpactColor: {r: 0.40716752, g: 0.32028338, b: 0.18894103, a: 1}
+  SandbagB:
+    Material: {fileID: 2100000, guid: 228186a94841d9a46af7161f4e98fff7, type: 2}
+    TileMeters: 0.27
+    ImpactColor: {r: 0.31913128, g: 0.24492258, b: 0.14345522, a: 1}
+  Wood:
+    Material: {fileID: 2100000, guid: 33727c57439ad2842a2bd0802db1c279, type: 2}
+    TileMeters: 2
+    ImpactColor: {r: 0.23457304, g: 0.19807681, b: 0.17220017, a: 1}
+  Metal:
+    Material: {fileID: 2100000, guid: 8d82414cd5d670f409593768a189c545, type: 2}
+    TileMeters: 1
+    ImpactColor: {r: 0.22189215, g: 0.27075097, b: 0.18272577, a: 1}
+  Barrel:
+    Model: {fileID: 919132149155446097, guid: 4467845a6b64dc1489a1d5d079263dcb, type: 3}
+    Material: {fileID: 2100000, guid: 1a0283e9845aced4bad645ec35a4bce5, type: 2}
+    Size: {x: 0.563, y: 0.88, z: 0.563}
+    ImpactColor: {r: 0.22823836, g: 0.22841284, b: 0.17639647, a: 1}
+  BurnBarrel:
+    Model: {fileID: 919132149155446097, guid: afa4da8d39b761648aad4dbb7bef82a1, type: 3}
+    Material: {fileID: 2100000, guid: fb6e82f246e77874f8156dcbb95a1175, type: 2}
+    Size: {x: 0.599, y: 0.856, z: 0.598}
+    ImpactColor: {r: 0.43550974, g: 0.3198246, b: 0.25092447, a: 1}
+  Barrier:
+    Model: {fileID: 919132149155446097, guid: fd80ede144d3a1842b6f019544537c4b, type: 3}
+    Material: {fileID: 2100000, guid: c502006a5d0dd6042b355bbada7f41f9, type: 2}
+    Size: {x: 1.545, y: 0.835, z: 0.641}
+    ImpactColor: {r: 0.35805157, g: 0.31703922, b: 0.26467395, a: 1}
+  Tyre:
+    Model: {fileID: 919132149155446097, guid: d3fa815fbf11ad04baf19dbf537c137b, type: 3}
+    Material: {fileID: 2100000, guid: c0f7780fb466ee640af0325871df043b, type: 2}
+    Size: {x: 0.6, y: 0.6, z: 0.165}
+    ImpactColor: {r: 0.100375645, g: 0.0891504, b: 0.07919644, a: 1}
+  Crate:
+    Model: {fileID: 919132149155446097, guid: 04e1f69ce1e257b40b8ec66e564ac8d3, type: 3}
+    Material: {fileID: 2100000, guid: 6fd4a84bc29ab3b44a1cd9719276f866, type: 2}
+    Size: {x: 1.166, y: 0.464, z: 0.529}
+    ImpactColor: {r: 0.3191442, g: 0.2117997, b: 0.13295452, a: 1}
+  Sky: {fileID: 8900000, guid: 2d9b03728dc414a4e943869320ec4629, type: 3}
+  SkyExposure: 0.1
+  SourceStamp: v2;Barrel_01_1k.fbx:97052;Barrel_01_oxide_green_arm_1k.jpg:238780;Barrel_01_oxide_green_diff_1k.jpg:152503;Barrel_01_oxide_green_nor_gl_1k.jpg:221225;barrel_stove_1k.fbx:295516;barrel_stove_arm_1k.jpg:789380;barrel_stove_diff_1k.jpg:858608;barrel_stove_nor_gl_1k.jpg:228496;concrete_road_barrier_1k.fbx:2887676;concrete_road_barrier_arm_1k.jpg:619502;concrete_road_barrier_diff_1k.jpg:792641;concrete_road_barrier_nor_gl_1k.jpg:961760;old_tyre_1k.fbx:96780;old_tyre_arm_1k.jpg:776823;old_tyre_diff_1k.jpg:650708;old_tyre_nor_gl_1k.jpg:722778;wooden_crate_02_1k.fbx:176524;wooden_crate_02_arm_1k.jpg:819577;wooden_crate_02_diff_1k.jpg:716110;wooden_crate_02_nor_gl_1k.jpg:546319;overcast_soil_puresky_2k.hdr:4568000;brown_mud_02_arm_2k.jpg:1008909;brown_mud_02_diff_2k.jpg:2163682;brown_mud_02_nor_gl_2k.jpg:4234657;burned_ground_01_arm_1k.jpg:227733;burned_ground_01_diff_1k.jpg:1033112;burned_ground_01_nor_gl_1k.jpg:366727;concrete_debris_arm_1k.jpg:996477;concrete_debris_diff_1k.jpg:811730;concrete_debris_nor_gl_1k.jpg:1462829;concrete_layers_02_arm_1k.jpg:509499;concrete_layers_02_diff_1k.jpg:598800;concrete_layers_02_nor_gl_1k.jpg:734532;container_side_arm_2k.jpg:1856806;container_side_diff_2k.jpg:1833036;container_side_nor_gl_2k.jpg:2632795;damaged_concrete_floor_arm_1k.jpg:650733;damaged_concrete_floor_diff_1k.jpg:615238;damaged_concrete_floor_nor_gl_1k.jpg:596012;green_metal_rust_arm_1k.jpg:108674;green_metal_rust_diff_1k.jpg:212088;green_metal_rust_nor_gl_1k.jpg:121379;hessian_230_arm_1k.jpg:1139496;hessian_230_diff_1k.jpg:1062404;hessian_230_nor_gl_1k.jpg:1030521;weathered_planks_arm_1k.jpg:528272;weathered_planks_diff_1k.jpg:599581;weathered_planks_nor_gl_1k.jpg:681552;

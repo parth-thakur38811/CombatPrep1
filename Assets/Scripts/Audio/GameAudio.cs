@@ -76,16 +76,39 @@ namespace CombatPrep.Audio
             src.Play();
         }
 
-        public void PlayAt(AudioClip clip, Vector3 position, float volume = 1f, float pitchJitter = 0.08f)
+        /// <param name="maxDistance">Audible range. Impacts are local (60 m); gunshots should
+        /// carry across the whole arena, so remote shots pass a much larger value.</param>
+        public void PlayAt(AudioClip clip, Vector3 position, float volume = 1f, float pitchJitter = 0.08f,
+                           float maxDistance = 60f)
         {
             if (clip == null) return;
             var src = Take();
             src.transform.position = position;
             src.spatialBlend = 1f;
+            src.maxDistance = maxDistance;
             src.clip = clip;
             src.volume = volume * MasterVolume;
             src.pitch = 1f + Random.Range(-pitchJitter, pitchJitter);
             src.Play();
+        }
+
+        readonly System.Collections.Generic.Dictionary<Weapons.WeaponDefinition, AudioClip> _shotCache = new();
+
+        /// <summary>
+        /// The report for a specific weapon, synthesised once and cached. The shared Shot clip
+        /// only ever holds *your* gun's sound; other players need their own, or a friend's
+        /// shotgun would boom like your SMG.
+        /// </summary>
+        public AudioClip ShotFor(Weapons.WeaponDefinition def)
+        {
+            if (def == null) return Shot;
+            if (!_shotCache.TryGetValue(def, out var clip))
+            {
+                clip = Synth.GunShot("Shot_" + def.DisplayName, def.ShotGain, def.ShotDecay,
+                                     def.ShotBodyHz, def.ShotCrack, def.ShotTail);
+                _shotCache[def] = clip;
+            }
+            return clip;
         }
 
         AudioSource Take()

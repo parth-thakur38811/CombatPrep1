@@ -153,6 +153,145 @@ namespace CombatPrep.Audio
             return Make(name, data);
         }
 
+        /// <summary>
+        /// A seamless rain loop, three layers deep:
+        ///   hiss   - band-passed noise, the sheet of rain in the distance
+        ///   patter - hundreds of tiny droplet transients a second, the rain near you
+        ///   wash   - low rumble underneath, the weight of a downpour
+        /// Slow gusting swells the hiss. The tail is crossfaded into the head so the clip
+        /// loops without a seam. The same generator makes rain-on-a-roof by trading hiss for
+        /// fewer, heavier, lower drops (<paramref name="patterHz"/> sets their ring).
+        /// </summary>
+        public static AudioClip RainLoop(string name, int seed, float seconds = 5f, float patterRate = 540f,
+                                         float patterHz = 3200f, float hiss = 0.55f, float patter = 0.6f,
+                                         float wash = 0.35f, float gain = 0.5f)
+        {
+            var rng = new System.Random(seed);
+            int n = Mathf.CeilToInt(SampleRate * seconds);
+            int xf = Mathf.CeilToInt(SampleRate * 0.6f);
+            var raw = new float[n + xf];
+
+            float hpState = 0f, bpState = 0f, washA = 0f, washB = 0f;
+            float aHp = Coeff(480f), aLp = Coeff(6800f), aWash = Coeff(240f);
+            float dropEnv = 0f, dropDecay = 0f, dropFreq = 0f, dropPhase = 0f;
+            float g1 = (float)rng.NextDouble() * 6.28f, g2 = (float)rng.NextDouble() * 6.28f;
+
+            for (int i = 0; i < raw.Length; i++)
+            {
+                float t = (float)i / SampleRate;
+                float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+
+                // hiss: high-pass then low-pass
+                hpState += aHp * (white - hpState);
+                bpState += aLp * ((white - hpState) - bpState);
+                float gust = 0.78f + 0.22f * Mathf.Sin(t * 0.83f + g1) * Mathf.Sin(t * 0.31f + g2);
+
+                // wash: twice-filtered noise, near brown
+                washA += aWash * (white - washA);
+                washB += aWash * (washA - washB);
+
+                // patter: a droplet fires at random; each is a ringing blip in a burst of noise
+                if (rng.NextDouble() < patterRate / SampleRate)
+                {
+                    dropEnv = Mathf.Pow((float)rng.NextDouble(), 2.2f) * 0.9f + 0.06f;
+                    dropDecay = Mathf.Lerp(900f, 2600f, (float)rng.NextDouble());
+                    dropFreq = patterHz * Mathf.Lerp(0.6f, 1.6f, (float)rng.NextDouble());
+                    dropPhase = 0f;
+                }
+                dropEnv *= 1f - dropDecay / SampleRate;
+                dropPhase += 2f * Mathf.PI * dropFreq / SampleRate;
+                float drop = (Mathf.Sin(dropPhase) * 0.6f + white * 0.4f) * dropEnv;
+
+                float s = bpState * hiss * gust + drop * patter + washB * wash * 5f;
+                raw[i] = SoftClip(s * 1.2f) * gain;
+            }
+
+            // Fold the overrun back over the start: equal-power crossfade, seamless loop.
+            var data = new float[n];
+            System.Array.Copy(raw, data, n);
+            for (int k = 0; k < xf; k++)
+            {
+                float a = (float)k / xf;
+                data[k] = data[k] * Mathf.Sqrt(a) + raw[n + k] * Mathf.Sqrt(1f - a);
+            }
+            return Make(name, data);
+        }
+
+        /// <summary>
+        /// Thunder. A rolling rumble is heavily low-passed noise shaped by several overlapping
+        /// swells - each a different stretch of the bolt's path arriving at a different time,
+        /// which is why real thunder rolls rather than bangs. A close strike adds the tearing
+        /// crack at the front; a far one keeps only the low roll.
+        /// </summary>
+        public static AudioClip Thunder(string name, int seed, bool close, float seconds = 7f, float gain = 0.9f)
+        {
+            var rng = new System.Random(seed);
+            float R(float a, float b) => a + (b - a) * (float)rng.NextDouble();
+
+            int n = Mathf.CeilToInt(SampleRate * seconds);
+            var data = new float[n];
+
+            int rolls = close ? 7 : 5;
+            var at = new float[rolls];
+            var amp = new float[rolls];
+            var rise = new float[rolls];
+            var fall = new float[rolls];
+            for (int k = 0; k < rolls; k++)
+            {
+                at[k] = k == 0 ? (close ? 0.02f : R(0.1f, 0.5f)) : R(close ? 0.08f : 0.3f, seconds * 0.55f);
+                amp[k] = k == 0 && close ? 1f : R(0.35f, 0.95f);
+                rise[k] = R(0.04f, 0.28f);
+                fall[k] = R(0.5f, 1.6f);
+            }
+
+            float lp1 = 0f, lp2 = 0f, lp3 = 0f, mid = 0f, crackLp = 0f, subPhase = 0f;
+            float aLow = Coeff(close ? 170f : 105f), aMid = Coeff(900f), aCrack = Coeff(2400f);
+
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / SampleRate;
+                float white = (float)(rng.NextDouble() * 2.0 - 1.0);
+
+                lp1 += aLow * (white - lp1);
+                lp2 += aLow * (lp1 - lp2);
+                lp3 += aLow * (lp2 - lp3);
+
+                float env = 0.22f * Mathf.Exp(-t / (seconds * 0.35f));
+                for (int k = 0; k < rolls; k++)
+                {
+                    float dt = t - at[k];
+                    if (dt <= 0f) continue;
+                    env += amp[k] * (dt < rise[k] ? dt / rise[k] : Mathf.Exp(-(dt - rise[k]) / fall[k]));
+                }
+
+                // Rattle: bursts of mid-band grit riding the roll.
+                mid += aMid * (white - mid);
+                float rattle = (white - mid) * env * (close ? 0.10f : 0.04f) * (rng.NextDouble() < 0.03 ? 3f : 0.4f);
+
+                subPhase += 2f * Mathf.PI * (36f + 6f * Mathf.Sin(t * 0.7f)) / SampleRate;
+                float sub = Mathf.Sin(subPhase) * env * 0.05f;
+
+                float crack = 0f;
+                if (close && t < 0.7f)
+                {
+                    crackLp += aCrack * (white - crackLp);
+                    float rip = rng.NextDouble() < 0.5 ? 1f : 0.3f;
+                    crack = (white - crackLp) * Mathf.Exp(-t * 7.5f) * 0.55f * rip;
+                }
+
+                data[i] = lp3 * env * 9f + sub + rattle + crack;
+            }
+
+            // Normalise, then saturate gently so the peaks round off instead of clipping.
+            float peak = 0.0001f;
+            for (int i = 0; i < n; i++) peak = Mathf.Max(peak, Mathf.Abs(data[i]));
+            float scale = 0.95f / peak;
+            for (int i = 0; i < n; i++) data[i] = SoftClip(data[i] * scale * 1.3f) * gain;
+
+            Fade(data, 0.002f, 0.9f);
+            return Make(name, data);
+        }
+
         // --- helpers ---
 
         static float Coeff(float cutoffHz) => 1f - Mathf.Exp(-2f * Mathf.PI * cutoffHz / SampleRate);

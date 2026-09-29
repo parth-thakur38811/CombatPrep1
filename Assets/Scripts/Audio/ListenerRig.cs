@@ -13,7 +13,12 @@ namespace CombatPrep.Audio
     /// </summary>
     public class ListenerRig : MonoBehaviour
     {
+        /// <summary>The single session listener, so whoever builds a camera can point it here.</summary>
+        public static ListenerRig I { get; private set; }
+
         public Transform Follow;
+
+        void Awake() => I = this;
 
         /// <summary>Late, so it picks up the camera's final position for the frame.</summary>
         void LateUpdate()

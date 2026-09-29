@@ -1,5 +1,6 @@
 using UnityEngine;
 using CombatPrep.Audio;
+using CombatPrep.Core;
 using CombatPrep.FX;
 using CombatPrep.Player;
 using CombatPrep.Targets;
@@ -38,6 +39,25 @@ namespace CombatPrep.Weapons
         int _burstRemaining;
 
         public bool IsReloading => _reloadDoneAt > 0f;
+
+        /// <summary>Raised once per trigger pull, before any pellet is traced.</summary>
+        public event System.Action ShotStarting;
+
+        /// <summary>Raised once per trigger pull: muzzle position and where each pellet ended.</summary>
+        public event System.Action<Vector3, Vector3[]> ShotFired;
+
+        /// <summary>Full magazine and reserve - used when a player respawns.</summary>
+        public void ResetAmmo()
+        {
+            StopAllCoroutines();          // cancels a pending reload sound
+            _reloadDoneAt = -1f;
+            _burstRemaining = 0;
+            _mag = Def.MagSize;
+            _reserve = Def.ReserveAmmo;
+            _recoil.Reset();
+            _spread.Reset();
+            Hud.I.SetAmmo(_mag, _reserve, false);
+        }
 
         bool _active = true;
         /// <summary>
@@ -158,6 +178,9 @@ namespace CombatPrep.Weapons
             Vector3 forward = Cam.transform.forward;
             Vector3 muzzle = _model.Muzzle.position;
 
+            // Opens the window in which hits on other players are collected for sending.
+            ShotStarting?.Invoke();
+
             // Shotguns resolve as several independent rays through the same cone, then
             // report one combined result so the HUD and accuracy stats stay per-trigger-pull.
             int pellets = Mathf.Max(1, Def.PelletsPerShot);
@@ -165,6 +188,7 @@ namespace CombatPrep.Weapons
             float totalDamage = 0f;
             bool anyHead = false, anyKill = false;
             Vector3 hitCentroid = Vector3.zero;
+            var ends = new Vector3[pellets];
 
             for (int i = 0; i < pellets; i++)
             {
@@ -185,8 +209,13 @@ namespace CombatPrep.Weapons
                     }
                 }
 
+                ends[i] = endPoint;
                 FxSystem.I.Tracer(muzzle, endPoint);
             }
+
+            // Online, this is what carries the shot to everyone else - after the pellet loop,
+            // so any player hits queued during it travel in the same single message.
+            ShotFired?.Invoke(muzzle, ends);
 
             if (hits > 0)
                 Hud.I.ReportHit(totalDamage, anyHead, anyKill, hitCentroid / hits);
@@ -236,18 +265,23 @@ namespace CombatPrep.Weapons
                 killed = info.Killed;
 
                 GameAudio.I.PlayAt(GameAudio.I.ImpactSoft, hit.point, 0.45f);
-                // Attach the hole to the board so it swings with the target.
-                FxSystem.I.Impact(hit.point, hit.normal, new Color(0.55f, 0.48f, 0.38f),
-                                  zone.Owner.Board, 2, spark: false);
+
+                // Paper targets keep their holes (parented, so they swing with the board).
+                // Players leave none - a hole hanging in the air after they move looks broken.
+                var anchor = zone.Owner.HoleAnchor;
+                if (anchor != null)
+                    FxSystem.I.Impact(hit.point, hit.normal, new Color(0.55f, 0.48f, 0.38f), anchor, 2, spark: false);
+                else
+                    FxSystem.I.Impact(hit.point, hit.normal, new Color(0.45f, 0.08f, 0.07f), null, 4, spark: false, hole: false);
                 return true;
             }
 
             GameAudio.I.PlayAt(GameAudio.I.ImpactHard, hit.point, 0.4f);
 
+            // Props carry their collider on a parent of the renderer.
             var r = hit.collider.GetComponent<Renderer>();
-            Color tint = r != null && r.sharedMaterial != null && r.sharedMaterial.HasProperty("_BaseColor")
-                ? r.sharedMaterial.GetColor("_BaseColor")
-                : new Color(0.5f, 0.5f, 0.5f);
+            if (r == null) r = hit.collider.GetComponentInChildren<Renderer>();
+            Color tint = SurfaceColors.For(r != null ? r.sharedMaterial : null, new Color(0.5f, 0.5f, 0.5f));
             FxSystem.I.Impact(hit.point, hit.normal, tint);
             return false;
         }

@@ -4,13 +4,15 @@ using UnityEngine;
 namespace CombatPrep.Core
 {
     /// <summary>
-    /// Builds the shooting range: a sun-bleached desert facility. Everything is primitives
-    /// plus generated textures, but the point of this pass is that flat grey boxes read as
-    /// unfinished no matter how good the shooting feels. What fixes it is cheap and
-    /// specific: tiled surface texture, a warm/cool colour split, clutter at three
-    /// different scales, and something overhead to cast shadows across the firing line.
+    /// Builds the shooting range: a rain-soaked firing position at the edge of a war zone.
+    /// Everything is primitives plus generated textures, but the point of this pass is that
+    /// flat grey boxes read as unfinished no matter how good the shooting feels. What fixes it
+    /// is cheap and specific: tiled surface texture, a warm/cool colour split, clutter at
+    /// three different scales, and something overhead to cast shadows across the firing line.
+    /// Surfaces are tuned wet - darker and glossier than they would be dry - and the war-zone
+    /// dressing (RangeBuilder.Warzone.cs) is layered on last.
     /// </summary>
-    public static class RangeBuilder
+    public static partial class RangeBuilder
     {
         public const float Width = 72f;
         public const float Length = 104f;
@@ -32,6 +34,9 @@ namespace CombatPrep.Core
 
         static Material _ground, _concrete, _concreteWall;
 
+        /// <summary>Imported PBR art. Every use falls back to the procedural look if an entry is missing.</summary>
+        static ArtLibrary Art => ArtLibrary.I;
+
         public static void Build()
         {
             // Deterministic layout: the clutter looks scattered but is identical every run,
@@ -39,9 +44,10 @@ namespace CombatPrep.Core
             var prev = Random.state;
             Random.InitState(20260912);
 
-            _ground = Tiled(Tex.Ground(256, 1), 34f, 34f, 0.02f);
-            _concrete = Tiled(Tex.Concrete(256, 2), 10f, 10f, 0.06f);
-            _concreteWall = Tiled(Tex.Concrete(256, 3), 8f, 2f, 0.06f);
+            // Wet: mud and concrete both glint under the storm light.
+            _ground = Tiled(Tex.Ground(256, 1), 34f, 34f, 0.32f);
+            _concrete = Tiled(Tex.Concrete(256, 2), 10f, 10f, 0.36f);
+            _concreteWall = Tiled(Tex.Concrete(256, 3), 8f, 2f, 0.30f);
 
             var root = Prim.Empty(null, "Range");
 
@@ -53,8 +59,14 @@ namespace CombatPrep.Core
             Lanes(root);
             Perimeter(root);
             Clutter(root);
+            Warzone(root);      // strictly last - see RangeBuilder.Warzone.cs
 
             Random.state = prev;
+
+            // Fires are lit only once the layout is final and the seeded stream is released:
+            // particle systems are engine internals, and nothing that might touch Random may
+            // run while the shared stream is still placing cover.
+            LightFires();
         }
 
         // -------------------------------------------------------------------------- base
@@ -62,15 +74,12 @@ namespace CombatPrep.Core
         static void Ground(Transform root)
         {
             // Sized off the arena so it always runs well past the berms and the backstop.
-            var g = Prim.Box(root, "Ground", new Vector3(0f, -0.5f, Length * 0.36f),
-                             new Vector3(Width + 140f, 1f, Length + 130f),
-                             Color.white, 0f, 0.04f, collider: true);
-            Prim.SetMaterial(g, _ground);
+            Prim.Surface(root, "Ground", new Vector3(0f, -0.5f, Length * 0.36f),
+                         new Vector3(Width + 140f, 1f, Length + 130f), Art.Ground, _ground, collider: true);
 
             // Concrete apron under the shooter, so the firing line reads as built.
-            var pad = Prim.Box(root, "Pad", new Vector3(0f, 0.012f, -1.5f),
-                               new Vector3(34f, 0.06f, 12f), Color.white, 0f, 0.10f, collider: true);
-            Prim.SetMaterial(pad, _concrete);
+            Prim.Surface(root, "Pad", new Vector3(0f, 0.012f, -1.5f), new Vector3(34f, 0.06f, 12f),
+                         Art.Floor, _concrete, collider: true);
         }
 
         /// <summary>Earth berms down each side and a tall backstop - the classic range shape.</summary>
@@ -90,11 +99,10 @@ namespace CombatPrep.Core
                 {
                     float z = flankStart + i * flankSpacing;
                     float h = 3.4f + Mathf.PerlinNoise(i * 0.6f, side * 3f) * 2.2f;
-                    var m = Prim.Ball(berms, $"Berm{side}_{i}",
-                                      new Vector3(side * (Width * 0.5f + 3f), h * 0.18f, z),
-                                      1f, Color.white);
-                    m.localScale = new Vector3(15f + Random.Range(-2f, 3f), h, 16f + Random.Range(-2f, 4f));
-                    Prim.SetMaterial(m, _ground);
+                    // Same draws in the same order either way, so the seeded layout can't shift.
+                    float sx = 15f + Random.Range(-2f, 3f);
+                    float sz = 16f + Random.Range(-2f, 4f);
+                    Berm(berms, $"Berm{side}_{i}", new Vector3(side * (Width * 0.5f + 3f), 0f, z), sx, h, sz, h * 0.18f);
                 }
             }
 
@@ -106,10 +114,35 @@ namespace CombatPrep.Core
             for (int i = 0; i < backCount; i++)
             {
                 float x = -backHalf + i * backSpacing;
-                var m = Prim.Ball(berms, $"Backstop{i}", new Vector3(x, 1.2f, Length), 1f, Color.white);
-                m.localScale = new Vector3(16f, 11f + Random.Range(-1.5f, 2.5f), 15f);
-                Prim.SetMaterial(m, _ground);
+                float h = 11f + Random.Range(-1.5f, 2.5f);
+                Berm(berms, $"Backstop{i}", new Vector3(x, 0f, Length), 16f, h, 15f, 1.2f);
             }
+        }
+
+        /// <summary>
+        /// One mound. With imported art it is a real earth-mound mesh, textured in world space
+        /// and matched to the footprint and height the old sphere showed above ground. Without,
+        /// it is the original half-buried scaled sphere.
+        /// </summary>
+        static void Berm(Transform parent, string name, Vector3 foot, float sx, float h, float sz, float sink)
+        {
+            if (ArtLibrary.Has(Art.Berm))
+            {
+                // Where a sphere of this scale, centred `sink` above ground, meets the ground.
+                float cut = sink / (h * 0.5f);
+                float spread = Mathf.Sqrt(Mathf.Max(0f, 1f - cut * cut));
+                var go = new GameObject(name);
+                go.transform.SetParent(parent, false);
+                go.transform.localPosition = foot;
+                go.AddComponent<MeshFilter>().sharedMesh = MeshGen.Mound(foot, sx * spread, sink + h * 0.5f, sz * spread,
+                    Art.Berm.TileMeters, Mathf.RoundToInt(foot.x * 7f + foot.z * 13f));
+                go.AddComponent<MeshRenderer>().sharedMaterial = Art.Berm.Material;
+                return;
+            }
+
+            var m = Prim.Ball(parent, name, foot + Vector3.up * sink, 1f, Color.white);
+            m.localScale = new Vector3(sx, h, sz);
+            Prim.SetMaterial(m, _ground);
         }
 
         /// <summary>
@@ -143,7 +176,7 @@ namespace CombatPrep.Core
         static void DistantHills(Transform root)
         {
             var hills = Prim.Empty(root, "Hills");
-            var tint = Mat.Get(new Color(0.62f, 0.56f, 0.46f), 0f, 0.05f);
+            var tint = Mat.Get(new Color(0.16f, 0.155f, 0.15f), 0f, 0.2f);
 
             for (int i = 0; i < 16; i++)
             {
@@ -167,30 +200,32 @@ namespace CombatPrep.Core
             float y = 3.5f;
             for (int i = -3; i <= 3; i++)
             {
-                Prim.Box(fl, $"Post{i}", new Vector3(i * 4f, y * 0.5f, -5.5f),
-                         new Vector3(0.22f, y, 0.22f), Mat.Steel, 0.55f, 0.35f, collider: true);
-                Prim.Box(fl, $"PostF{i}", new Vector3(i * 4f, y * 0.5f, 2.5f),
-                         new Vector3(0.22f, y, 0.22f), Mat.Steel, 0.55f, 0.35f, collider: true);
+                Prim.Surface(fl, $"Post{i}", new Vector3(i * 4f, y * 0.5f, -5.5f),
+                             new Vector3(0.22f, y, 0.22f), Art.Metal, Mat.Steel, 0.55f, 0.55f, collider: true);
+                Prim.Surface(fl, $"PostF{i}", new Vector3(i * 4f, y * 0.5f, 2.5f),
+                             new Vector3(0.22f, y, 0.22f), Art.Metal, Mat.Steel, 0.55f, 0.55f, collider: true);
             }
 
             // Roof beams, deliberately slatted so the light breaks up across the ground.
-            Prim.Box(fl, "BeamL", new Vector3(0f, y, -5.5f), new Vector3(26f, 0.18f, 0.30f), Mat.Steel, 0.5f, 0.3f);
-            Prim.Box(fl, "BeamR", new Vector3(0f, y, 2.5f), new Vector3(26f, 0.18f, 0.30f), Mat.Steel, 0.5f, 0.3f);
+            Prim.Surface(fl, "BeamL", new Vector3(0f, y, -5.5f), new Vector3(26f, 0.18f, 0.30f), Art.Metal, Mat.Steel, 0.5f, 0.52f);
+            Prim.Surface(fl, "BeamR", new Vector3(0f, y, 2.5f), new Vector3(26f, 0.18f, 0.30f), Art.Metal, Mat.Steel, 0.5f, 0.52f);
             for (int i = 0; i < 17; i++)
             {
                 float z = -5.5f + i * 0.5f;
-                Prim.Box(fl, $"Slat{i}", new Vector3(0f, y + 0.12f, z),
-                         new Vector3(26f, 0.06f, 0.22f), Mat.RustDark, 0.3f, 0.2f);
+                Prim.Surface(fl, $"Slat{i}", new Vector3(0f, y + 0.12f, z),
+                             new Vector3(26f, 0.06f, 0.22f), Art.Metal, Mat.RustDark, 0.3f, 0.45f);
             }
 
             // Shooting benches.
             for (int i = -2; i <= 2; i++)
             {
                 var bench = Prim.Empty(fl, $"Bench{i}", new Vector3(i * 4f, 0f, -0.6f));
-                Prim.Box(bench, "Top", new Vector3(0f, 1.05f, 0f), new Vector3(1.5f, 0.09f, 0.75f),
-                         Mat.Wood, 0.05f, 0.25f, collider: true);
-                Prim.Box(bench, "LegL", new Vector3(-0.62f, 0.52f, 0f), new Vector3(0.09f, 1.05f, 0.09f), Mat.Steel, 0.5f, 0.3f);
-                Prim.Box(bench, "LegR", new Vector3(0.62f, 0.52f, 0f), new Vector3(0.09f, 1.05f, 0.09f), Mat.Steel, 0.5f, 0.3f);
+                Prim.Surface(bench, "Top", new Vector3(0f, 1.05f, 0f), new Vector3(1.5f, 0.09f, 0.75f),
+                             Art.Wood, Mat.Wood, 0.05f, 0.42f, collider: true);
+                Prim.Surface(bench, "LegL", new Vector3(-0.62f, 0.52f, 0f), new Vector3(0.09f, 1.05f, 0.09f),
+                             Art.Metal, Mat.Steel, 0.5f, 0.3f);
+                Prim.Surface(bench, "LegR", new Vector3(0.62f, 0.52f, 0f), new Vector3(0.09f, 1.05f, 0.09f),
+                             Art.Metal, Mat.Steel, 0.5f, 0.3f);
             }
 
             // Painted firing line.
@@ -206,7 +241,7 @@ namespace CombatPrep.Core
             {
                 Prim.Box(lanes, $"Mark{d}", new Vector3(0f, 0.02f, d),
                          new Vector3(BoundHalfX * 2f - 8f, 0.03f, 0.12f),
-                         new Color(0.80f, 0.78f, 0.72f), 0f, 0.15f);
+                         new Color(0.56f, 0.55f, 0.51f), 0f, 0.4f);
 
                 // Posts hug the boundary from the inside, so they stay reachable rather
                 // than stranded behind the invisible wall.
@@ -219,7 +254,7 @@ namespace CombatPrep.Core
                     for (int b = 0; b < 4; b++)
                         Prim.Box(post, $"Band{b}", new Vector3(0f, 0.25f + b * 0.32f, 0f),
                                  new Vector3(0.115f, 0.16f, 0.115f),
-                                 b % 2 == 0 ? Mat.Accent : new Color(0.92f, 0.92f, 0.88f), 0f, 0.25f);
+                                 b % 2 == 0 ? Mat.Accent : new Color(0.70f, 0.70f, 0.67f), 0f, 0.45f);
                     Prim.Box(post, "Plate", new Vector3(0f, 1.55f, 0f), new Vector3(0.52f, 0.30f, 0.04f),
                              Mat.Accent, 0f, 0.3f);
                 }
@@ -234,11 +269,10 @@ namespace CombatPrep.Core
             int half = Mathf.CeilToInt(BoundHalfX / 6f);
             for (int i = -half; i <= half; i++)
             {
-                var w = Prim.Box(p, $"Wall{i}", new Vector3(i * 6f, 2.1f, -11f),
-                                 new Vector3(5.8f, 4.2f, 0.55f), Color.white, 0f, 0.08f, collider: true);
-                Prim.SetMaterial(w, _concreteWall);
-                Prim.Box(p, $"WallCap{i}", new Vector3(i * 6f, 4.3f, -11f),
-                         new Vector3(6.0f, 0.18f, 0.75f), Mat.ConcreteHi, 0f, 0.1f);
+                Prim.Surface(p, $"Wall{i}", new Vector3(i * 6f, 2.1f, -11f), new Vector3(5.8f, 4.2f, 0.55f),
+                             Art.Concrete, _concreteWall, collider: true);
+                Prim.Surface(p, $"WallCap{i}", new Vector3(i * 6f, 4.3f, -11f), new Vector3(6.0f, 0.18f, 0.75f),
+                             Art.Concrete, Mat.ConcreteHi, 0f, 0.35f);
             }
         }
 
@@ -257,6 +291,29 @@ namespace CombatPrep.Core
         const float LaneHalfX = 16f;    // every target Bootstrap spawns sits inside this
         const float LaneMinZ = 13f;
         const float LaneMaxZ = 72f;
+
+        // Online spawn points (x, z). Spread around the edge of the play box so players
+        // start apart, each clear of the target corridor and the firing point. Identical on
+        // every machine because they are constants, so they never need syncing.
+        static readonly Vector2[] SpawnSpots =
+        {
+            new(-24f, -4f), new(24f, -4f),
+            new(-26f, 26f), new(26f, 26f),
+            new(-26f, 58f), new(26f, 58f),
+            new(-11f, 88f), new(11f, 88f),
+        };
+
+        public static int SpawnCount => SpawnSpots.Length;
+
+        /// <summary>A spawn position, facing into the middle of the arena.</summary>
+        public static (Vector3 pos, Quaternion rot) SpawnPoint(int index)
+        {
+            var s = SpawnSpots[((index % SpawnSpots.Length) + SpawnSpots.Length) % SpawnSpots.Length];
+            var pos = new Vector3(s.x, 0.1f, s.y);
+            var toCentre = new Vector3(0f, 0f, 42f) - pos;
+            toCentre.y = 0f;
+            return (pos, Quaternion.LookRotation(toCentre));
+        }
 
         static bool InTargetLane(Vector2 p, float radius)
             => Mathf.Abs(p.x) < LaneHalfX + radius
@@ -304,6 +361,9 @@ namespace CombatPrep.Core
             Occupied.Clear();
             Occupy(new Vector2(0f, -1.5f), 8f);    // firing point, benches and canopy posts
 
+            // Spawn points are claimed first, so no container or sandbag can land on one.
+            foreach (var s in SpawnSpots) Occupy(s, 2.5f);
+
             // Barricades near the firing line, for cover-shooting practice.
             Barricade(c, new Vector3(-6.5f, 0f, 8f), 0f);
             Barricade(c, new Vector3(6.5f, 0f, 8f), 0f);
@@ -314,9 +374,10 @@ namespace CombatPrep.Core
             // Capped at |x| = 24 so that even end-on they stay clear of the distance posts
             // at |x| = 29, and clear of the target corridor at |x| = 16.
             var tints = new[] { Mat.ContainerA, Mat.ContainerB, Mat.ContainerC };
+            var paints = new[] { Art.ContainerA, Art.ContainerB, Art.ContainerC };
             for (int i = 0; i < 3; i++)
                 if (FindSpot(20f, 24f, 6f, 82f, ContRadius, out var p))
-                    Container(c, new Vector3(p.x, 0f, p.y), Random.Range(0f, 360f), tints[i], i + 1);
+                    Container(c, new Vector3(p.x, 0f, p.y), Random.Range(0f, 360f), tints[i], paints[i], i + 1);
 
             // --- cover to break line of sight behind ---
             // Near the firing point, spaced so there is room to move between them.
@@ -364,45 +425,42 @@ namespace CombatPrep.Core
         /// floor is only 0.10 m proud of the ground, well under the CharacterController's
         /// 0.35 m step offset, so you walk in without having to jump.
         /// </summary>
-        static void Container(Transform parent, Vector3 pos, float yaw, Color tint, int seed)
+        static void Container(Transform parent, Vector3 pos, float yaw, Color tint, ArtLibrary.Surface paint, int seed)
         {
             var t = Prim.Empty(parent, "Container", pos);
             t.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
-            var skin = Tiled(Tex.Corrugated(tint, 22, seed), 3f, 1f, 0.25f, 0.3f);
+            // The procedural skin is only drawn if there's no photographed one to use.
+            var skin = ArtLibrary.Has(paint) ? null : Tiled(Tex.Corrugated(tint, 22, seed), 3f, 1f, 0.5f, 0.3f);
             float halfLen = ContLen * 0.5f;
             float sideZ = (ContWid - ContWall) * 0.5f;
             float innerH = ContHgt - ContWall * 2f;
 
             // Floor and roof cap the shell top and bottom.
-            Prim.Box(t, "Floor", new Vector3(0f, ContWall * 0.5f, 0f),
-                     new Vector3(ContLen, ContWall, ContWid), tint * 0.55f, 0.4f, 0.3f, collider: true);
-            var roof = Prim.Box(t, "Roof", new Vector3(0f, ContHgt - ContWall * 0.5f, 0f),
-                                new Vector3(ContLen, ContWall, ContWid), Color.white, 0.35f, 0.25f, collider: true);
-            Prim.SetMaterial(roof, skin);
+            Prim.Surface(t, "Floor", new Vector3(0f, ContWall * 0.5f, 0f),
+                         new Vector3(ContLen, ContWall, ContWid), Art.Wood, tint * 0.55f, 0.4f, 0.3f, collider: true);
+            Prim.Surface(t, "Roof", new Vector3(0f, ContHgt - ContWall * 0.5f, 0f),
+                         new Vector3(ContLen, ContWall, ContWid), paint, skin, collider: true);
 
             // The two long walls. These are what actually give cover.
             foreach (int s in new[] { -1, 1 })
             {
-                var wall = Prim.Box(t, s > 0 ? "SideA" : "SideB",
-                                    new Vector3(0f, ContHgt * 0.5f, s * sideZ),
-                                    new Vector3(ContLen, innerH, ContWall),
-                                    Color.white, 0.35f, 0.25f, collider: true);
-                Prim.SetMaterial(wall, skin);
+                Prim.Surface(t, s > 0 ? "SideA" : "SideB", new Vector3(0f, ContHgt * 0.5f, s * sideZ),
+                             new Vector3(ContLen, innerH, ContWall), paint, skin, collider: true);
             }
 
             // Corner posts and end rails frame the openings without narrowing them.
             foreach (int ex in new[] { -1, 1 })
             {
                 float x = ex * (halfLen + ContWall * 0.5f);
-                Prim.Box(t, $"Rail{ex}Top", new Vector3(x, ContHgt - ContWall * 0.5f, 0f),
-                         new Vector3(ContWall, ContWall * 1.3f, ContWid + ContWall), tint * 0.7f, 0.45f, 0.3f);
-                Prim.Box(t, $"Rail{ex}Bot", new Vector3(x, ContWall * 0.5f, 0f),
-                         new Vector3(ContWall, ContWall * 1.3f, ContWid + ContWall), tint * 0.7f, 0.45f, 0.3f);
+                Prim.Surface(t, $"Rail{ex}Top", new Vector3(x, ContHgt - ContWall * 0.5f, 0f),
+                             new Vector3(ContWall, ContWall * 1.3f, ContWid + ContWall), paint, tint * 0.7f, 0.45f, 0.3f);
+                Prim.Surface(t, $"Rail{ex}Bot", new Vector3(x, ContWall * 0.5f, 0f),
+                             new Vector3(ContWall, ContWall * 1.3f, ContWid + ContWall), paint, tint * 0.7f, 0.45f, 0.3f);
 
                 foreach (int ez in new[] { -1, 1 })
-                    Prim.Box(t, $"Post{ex}{ez}", new Vector3(x, ContHgt * 0.5f, ez * (ContWid + ContWall) * 0.5f),
-                             new Vector3(ContWall, ContHgt, ContWall), tint * 0.7f, 0.45f, 0.3f, collider: true);
+                    Prim.Surface(t, $"Post{ex}{ez}", new Vector3(x, ContHgt * 0.5f, ez * (ContWid + ContWall) * 0.5f),
+                                 new Vector3(ContWall, ContHgt, ContWall), paint, tint * 0.7f, 0.45f, 0.3f, collider: true);
             }
 
             // Door leaves, hinged at the +X corners and swung back 115 degrees so they sit
@@ -420,11 +478,11 @@ namespace CombatPrep.Core
                 Vector2 mid = hinge + dir * (leaf * 0.5f);
                 float yawDeg = Mathf.Atan2(ez * Mathf.Cos(a), Mathf.Sin(a)) * Mathf.Rad2Deg;
 
-                Prim.Box(t, ez > 0 ? "DoorL" : "DoorR",
-                         new Vector3(mid.x, ContHgt * 0.5f, mid.y),
-                         new Vector3(leaf, ContHgt - 0.3f, 0.06f),
-                         tint * 0.8f, 0.4f, 0.35f, collider: true,
-                         euler: new Vector3(0f, yawDeg, 0f));
+                Prim.Surface(t, ez > 0 ? "DoorL" : "DoorR",
+                             new Vector3(mid.x, ContHgt * 0.5f, mid.y),
+                             new Vector3(leaf, ContHgt - 0.3f, 0.06f),
+                             paint, tint * 0.8f, 0.4f, 0.35f, collider: true,
+                             euler: new Vector3(0f, yawDeg, 0f));
             }
         }
 
@@ -454,6 +512,8 @@ namespace CombatPrep.Core
                     var bag = Prim.Capsule(t, $"Bag{row}_{i}", new Vector3(x, y, 0f), 0.30f, 0.42f,
                                            (row + i) % 2 == 0 ? Mat.Canvas : Mat.SandDark,
                                            false, new Vector3(0f, 0f, 90f));
+                    var burlap = SandbagMaterial(row + i);
+                    if (burlap != null) Prim.SetMaterial(bag, burlap);
                     bag.localRotation = Quaternion.Euler(0f, Random.Range(-7f, 7f), 90f);
 
                     minX = Mathf.Min(minX, x - bagHalfLength);
@@ -469,16 +529,42 @@ namespace CombatPrep.Core
             col.GetComponent<MeshRenderer>().enabled = false;
         }
 
+        /// <summary>
+        /// An oil drum. About a third are burn barrels - lid off, fire inside - chosen by a
+        /// hash of the position rather than by Random, so the choice can't shift the seeded
+        /// layout of everything placed after it.
+        /// </summary>
         static void Barrel(Transform parent, Vector3 pos, float yaw)
         {
             var t = Prim.Empty(parent, "Barrel", pos);
             t.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
-            Color c = Random.value < 0.5f ? Mat.Rust : new Color(0.30f, 0.40f, 0.28f);
-            Prim.Pillar(t, "Body", new Vector3(0f, 0.44f, 0f), 0.58f, 0.88f, c, 0.45f, 0.25f, collider: true);
-            Prim.Pillar(t, "RibA", new Vector3(0f, 0.28f, 0f), 0.62f, 0.06f, c * 0.75f, 0.45f, 0.3f);
-            Prim.Pillar(t, "RibB", new Vector3(0f, 0.60f, 0f), 0.62f, 0.06f, c * 0.75f, 0.45f, 0.3f);
-            Prim.Pillar(t, "Lid", new Vector3(0f, 0.89f, 0f), 0.60f, 0.04f, c * 0.85f, 0.5f, 0.35f);
+            // Drawn whichever barrel gets built, to keep the seeded stream in step.
+            Color c = Random.value < 0.5f ? Mat.Rust : new Color(0.20f, 0.26f, 0.19f);
+            bool burning = FX.ParticleKit.Hash01(pos) < 0.3f;
+
+            var model = burning ? Art.BurnBarrel : Art.Barrel;
+            if (ArtLibrary.Has(model))
+            {
+                Prim.Prop(t, burning ? "BurnBarrel" : "Drum", model, Vector3.zero, Quaternion.identity);
+                if (burning) QueueFire(t, pos + Vector3.up * (model.Size.y - 0.08f), 0.55f, 6.5f, false);
+                return;
+            }
+
+            Prim.Pillar(t, "Body", new Vector3(0f, 0.44f, 0f), 0.58f, 0.88f, c, 0.45f, 0.5f, collider: true);
+            Prim.Pillar(t, "RibA", new Vector3(0f, 0.28f, 0f), 0.62f, 0.06f, c * 0.75f, 0.45f, 0.5f);
+            Prim.Pillar(t, "RibB", new Vector3(0f, 0.60f, 0f), 0.62f, 0.06f, c * 0.75f, 0.45f, 0.5f);
+
+            if (burning)
+            {
+                // Charred rim and a bed of embers where the lid was.
+                Prim.Pillar(t, "Char", new Vector3(0f, 0.87f, 0f), 0.56f, 0.03f, Mat.Charred, 0f, 0.1f);
+                QueueFire(t, pos + Vector3.up * 0.88f, 0.55f, 6.5f, false);
+            }
+            else
+            {
+                Prim.Pillar(t, "Lid", new Vector3(0f, 0.89f, 0f), 0.60f, 0.04f, c * 0.85f, 0.5f, 0.5f);
+            }
         }
 
         static void Crate(Transform parent, Vector3 pos, float yaw)
@@ -487,8 +573,15 @@ namespace CombatPrep.Core
             t.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
             float s = Random.Range(0.7f, 1.05f);
+            if (ArtLibrary.Has(Art.Crate))
+            {
+                Prim.Prop(t, "Crate", Art.Crate, Vector3.zero, Quaternion.identity,
+                          scale: Mathf.Lerp(0.85f, 1.1f, (s - 0.7f) / 0.35f));
+                return;
+            }
+
             Prim.Box(t, "Body", new Vector3(0f, s * 0.5f, 0f), new Vector3(s, s, s * 0.95f),
-                     Mat.Wood, 0.05f, 0.2f, collider: true);
+                     Mat.Wood, 0.05f, 0.4f, collider: true);
             // Edge battens, so it does not read as a bare cube.
             Prim.Box(t, "BandA", new Vector3(0f, s * 0.5f, 0f), new Vector3(s * 1.02f, s * 0.12f, s * 0.97f),
                      Mat.Wood * 0.75f, 0.05f, 0.2f);
@@ -500,10 +593,31 @@ namespace CombatPrep.Core
         {
             var t = Prim.Empty(parent, "Tyres", pos);
             int n = Random.Range(2, 5);
+            var tyre = Art.Tyre;
+            bool art = ArtLibrary.Has(tyre);
+            float step = art ? tyre.Size.z + 0.004f : 0.19f;
+
             for (int i = 0; i < n; i++)
-                Prim.Pillar(t, $"Tyre{i}", new Vector3(0f, 0.10f + i * 0.19f, 0f), 0.92f, 0.18f,
-                            new Color(0.10f, 0.10f, 0.11f), 0.1f, 0.25f, collider: i == 0)
-                    .localRotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            {
+                float yaw = Random.Range(0f, 360f);
+                if (art)
+                    // Laid flat: the model stands on its tread, so tip it over.
+                    Prim.Prop(t, $"Tyre{i}", tyre, new Vector3(0f, step * (i + 0.5f), 0f),
+                              Quaternion.Euler(0f, yaw, 0f) * Quaternion.Euler(90f, 0f, 0f),
+                              collider: false, pivot: Prim.Pivot.Centre);
+                else
+                    Prim.Pillar(t, $"Tyre{i}", new Vector3(0f, 0.10f + i * 0.19f, 0f), 0.92f, 0.18f,
+                                new Color(0.08f, 0.08f, 0.09f), 0.1f, 0.5f, collider: i == 0)
+                        .localRotation = Quaternion.Euler(0f, yaw, 0f);
+            }
+
+            // One collider for the whole stack, so a shot at the top tyre can't pass through.
+            if (art)
+            {
+                var col = t.gameObject.AddComponent<BoxCollider>();
+                col.center = new Vector3(0f, step * n * 0.5f, 0f);
+                col.size = new Vector3(tyre.Size.x, step * n, tyre.Size.x);
+            }
         }
 
         static void Barricade(Transform parent, Vector3 pos, float yaw)
@@ -511,15 +625,30 @@ namespace CombatPrep.Core
             var t = Prim.Empty(parent, "Barricade", pos);
             t.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
+            if (ArtLibrary.Has(Art.Barrier))
+            {
+                // Two jersey barriers dropped end to end, slightly askew, as at a checkpoint.
+                Prim.Prop(t, "BarrierL", Art.Barrier, new Vector3(-0.8f, 0f, 0f), Quaternion.Euler(0f, 3f, 0f));
+                Prim.Prop(t, "BarrierR", Art.Barrier, new Vector3(0.8f, 0f, 0.06f), Quaternion.Euler(0f, -4f, 0f));
+                return;
+            }
+
             var body = Prim.Box(t, "Body", new Vector3(0f, 0.55f, 0f), new Vector3(2.4f, 1.1f, 0.35f),
                                 Color.white, 0f, 0.1f, collider: true);
             Prim.SetMaterial(body, _concrete);
-            Prim.Box(t, "Cap", new Vector3(0f, 1.13f, 0f), new Vector3(2.5f, 0.08f, 0.45f), Mat.Accent, 0f, 0.25f);
+            Prim.Box(t, "Cap", new Vector3(0f, 1.13f, 0f), new Vector3(2.5f, 0.08f, 0.45f), Mat.Accent, 0f, 0.45f);
             Prim.Box(t, "FootL", new Vector3(-1.0f, 0.08f, 0f), new Vector3(0.4f, 0.16f, 0.8f), Mat.ConcreteHi, 0f, 0.1f);
             Prim.Box(t, "FootR", new Vector3(1.0f, 0.08f, 0f), new Vector3(0.4f, 0.16f, 0.8f), Mat.ConcreteHi, 0f, 0.1f);
         }
 
         // ------------------------------------------------------------------------ helper
+
+        /// <summary>Burlap for a bag, alternating two dye lots; null without imported art.</summary>
+        public static Material SandbagMaterial(int index)
+        {
+            var bag = index % 2 == 0 ? Art.SandbagA : Art.SandbagB;
+            return ArtLibrary.Has(bag) ? bag.Material : null;
+        }
 
         static Material Tiled(Texture2D tex, float tx, float ty, float smoothness, float metallic = 0f)
         {

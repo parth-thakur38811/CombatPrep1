@@ -111,7 +111,7 @@ namespace CombatPrep.EditorTools
         const string WeaponAudio = Root + "/Audio/Weapons";
 
         /// <summary>Bump to force every machine to rebuild after changing this file.</summary>
-        const int Version = 7;
+        const int Version = 8;
         const int MaskSize = 512;
 
         public static bool IsArt(string path) => path.StartsWith(Root + "/");

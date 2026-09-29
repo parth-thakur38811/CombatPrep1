@@ -50,9 +50,12 @@ the folder above it is only a container.
 - **SoldierBuilder** reads `Art/Characters/Soldier/russian_soldier.glb` (Unity can't import
   glTF, so it parses it) into a mesh, URP materials and `Art/Generated/Soldier/Soldier.prefab`.
   Mixamo FBXs are imported as Humanoid clips, sorted by file name (idle / walk / run / sprint
-  / crouch / fire / death, with directions) into
-  `Art/Characters/Mixamo/Generated/SoldierAnimator.controller`. It logs a self-test pose
-  (hips, head and hand positions) to the Console.
+  / crouch / fire / death / throw, with directions) into
+  `Art/Characters/Mixamo/Generated/SoldierAnimator.controller`. Grenade throws go on their own
+  full-body layer; which is standing, crouched or running is read from the clips (a "run" in
+  the name, then the lowest hips), and each records the moment the grenade leaves the hand.
+  It logs the throw sorting and a self-test pose (hips, head and hand positions) to the
+  Console.
 - **FxPrefabBuilder** creates the effect prefabs in `Assets/Prefabs/FX` from `FxRecipes`
   **only where missing**, saving recipe textures as PNGs and materials as assets. After that
   the prefabs are the source of truth and hand edits stick. `CombatPrep > Rebuild FX Prefabs`
@@ -118,3 +121,6 @@ the folder above it is only a container.
 - **Hit feedback:** hit markers only - white for body hits, red for headshots, bigger and
   longer on a kill. Damage numbers removed.
 - **Grenades online:** now server-authoritative and damaging (they did nothing before).
+- **Throw animations:** remote soldiers throw grenades standing, crouched or on the run
+  (Mixamo), starting just before the release so the grenade leaves on cue; the gun is put away
+  until the arm comes back down.

@@ -61,6 +61,9 @@ namespace CombatPrep.Net
             else if (FxSystem.I != null) FxSystem.I.RemoteMuzzleFlash(MuzzlePosition);
         }
 
+        /// <summary>This player threw a grenade.</summary>
+        public virtual void OnThrow() { }
+
         public virtual void OnDied() => SetVisible(false);
 
         public virtual void OnRespawned() => SetVisible(true);
@@ -242,7 +245,7 @@ namespace CombatPrep.Net
             var mount = Prim.Empty(root, "GunMount");
             var model = WeaponModelBuilder.Build(mount, shape);
             SkinApplier.Apply(model, skin);
-            view.Init(animator, model, mount, art.HasDeath);
+            view.Init(animator, model, mount, art);
             if (FxSystem.I != null) view.Flash = FxSystem.I.AttachRemoteMuzzle(model.Muzzle);
 
             BuildNameplate(root, 2.1f, view, displayName, id);

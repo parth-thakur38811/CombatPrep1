@@ -36,6 +36,18 @@ namespace CombatPrep.Core
             public Color ImpactColor = Color.gray;
         }
 
+        /// <summary>A one-off animation on its own layer, and when in it the action happens.</summary>
+        [System.Serializable]
+        public class AnimMove
+        {
+            /// <summary>Animator state name, on the character's throw layer.</summary>
+            public string State;
+            /// <summary>Seconds into the clip when the grenade leaves the hand.</summary>
+            public float Release;
+            public float Length;
+            public bool Valid => !string.IsNullOrEmpty(State) && Length > 0f;
+        }
+
         [System.Serializable]
         public class Character
         {
@@ -47,6 +59,9 @@ namespace CombatPrep.Core
             /// </summary>
             public RuntimeAnimatorController Controller;
             public bool HasFire, HasDeath;
+            /// <summary>Grenade throws - standing, crouched and on the run - on layer ThrowLayer (-1: none).</summary>
+            public int ThrowLayer = -1;
+            public AnimMove ThrowStand, ThrowCrouch, ThrowRun;
         }
 
         [Header("Surfaces")]

@@ -92,6 +92,19 @@ MonoBehaviour:
     Controller: {fileID: 9100000, guid: 56e4dd47e0d055b419efd552414957ed, type: 2}
     HasFire: 1
     HasDeath: 1
+    ThrowLayer: 2
+    ThrowStand:
+      State: ThrowStand
+      Release: 1.9999988
+      Length: 2.766667
+    ThrowCrouch:
+      State: ThrowCrouch
+      Release: 1.849999
+      Length: 3.5000002
+    ThrowRun:
+      State: ThrowRun
+      Release: 1.6999991
+      Length: 2.9333334
   WeaponSounds:
   - WeaponId: carbine
     Shots:
@@ -128,8 +141,9 @@ MonoBehaviour:
     Fire: {fileID: 3616408767401219185, guid: 028736e81b4ba2942873e15fa642a2a8, type: 3}
     BurningWreck: {fileID: 3978685518747003211, guid: d2ca0e925d29a2c479ecac5245f6aa03, type: 3}
     Puddle: {fileID: 718090709273873826, guid: 17109deedb4661f4d844d52ae7879ded, type: 3}
-  SourceStamp: v7;carbine_shot_1.wav:105836;carbine_shot_2.wav:105836;carbine_shot_3.wav:105836;dmr_shot_1.wav:153836;dmr_shot_2.wav:153836;dmr_shot_3.wav:153836;pistol_shot_1.wav:86636;pistol_shot_2.wav:86636;pistol_shot_3.wav:86636;shotgun_shot_1.wav:144236;shotgun_shot_2.wav:144236;shotgun_shot_3.wav:144236;smg_shot_1.wav:57836;smg_shot_2.wav:57836;smg_shot_3.wav:57836;Pro
-    Rifle Pack.zip:4198609;X Bot.fbx:1750033;X Bot@Firing Rifle.fbx:369472;crouching
+  SourceStamp: v8;carbine_shot_1.wav:105836;carbine_shot_2.wav:105836;carbine_shot_3.wav:105836;dmr_shot_1.wav:153836;dmr_shot_2.wav:153836;dmr_shot_3.wav:153836;pistol_shot_1.wav:86636;pistol_shot_2.wav:86636;pistol_shot_3.wav:86636;shotgun_shot_1.wav:144236;shotgun_shot_2.wav:144236;shotgun_shot_3.wav:144236;smg_shot_1.wav:57836;smg_shot_2.wav:57836;smg_shot_3.wav:57836;Pro
+    Rifle Pack.zip:4198609;X Bot.fbx:1750033;X Bot@Firing Rifle.fbx:369472;X Bot@Grenade
+    Throw.fbx:553920;X Bot@Run And Throw Grenade.fbx:590112;X Bot@Throw Grenade.fbx:655536;crouching
     turn 90 left.fbx:369553;crouching turn 90 right.fbx:368577;death crouching headshot
     front.fbx:445473;death from back headshot.fbx:589553;death from front headshot.fbx:527297;death
     from right.fbx:543649;death from the back.fbx:528385;death from the front.fbx:552497;idle

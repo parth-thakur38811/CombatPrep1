@@ -334,7 +334,7 @@ namespace CombatPrep.EditorTools
 
         // =================================================================== animations
 
-        enum Gait { None, Idle, Walk, Run, Sprint, CrouchIdle, CrouchWalk, Fire, Death }
+        enum Gait { None, Idle, Walk, Run, Sprint, CrouchIdle, CrouchWalk, Fire, Death, Throw }
 
         sealed class Clip
         {
@@ -375,7 +375,7 @@ namespace CombatPrep.EditorTools
             {
                 var c = clips[i];
                 c.name = clips.Length == 1 ? file : $"{file} {i + 1}";
-                c.loopTime = gait != Gait.Death && gait != Gait.None;
+                c.loopTime = gait != Gait.Death && gait != Gait.None && gait != Gait.Throw;
                 c.lockRootRotation = true;
                 c.keepOriginalOrientation = true;
                 c.lockRootHeightY = true;
@@ -392,7 +392,8 @@ namespace CombatPrep.EditorTools
             bool Has(params string[] words) => words.Any(n.Contains);
 
             if (Has("death", "dying", " die ", " dead")) return (Gait.Death, Vector2.zero);
-            if (Has("reload", "jump", "turn", "throw", "grenade", "hit ", "react", "prone", "melee", "punch"))
+            if (Has("throw", "grenade")) return (Gait.Throw, Vector2.zero);
+            if (Has("reload", "jump", "turn", "hit ", "react", "prone", "melee", "punch"))
                 return (Gait.None, Vector2.zero);
             if (Has("firing", " fire", "shoot")) return (Gait.Fire, Vector2.zero);
 
@@ -563,6 +564,8 @@ namespace CombatPrep.EditorTools
                 controller.layers = layers;
             }
 
+            BuildThrowLayer(controller, character, clips, idle);
+
             EditorUtility.SetDirty(controller);
             character.Controller = controller;
             character.HasFire = fire != null;
@@ -574,6 +577,113 @@ namespace CombatPrep.EditorTools
                       $"fire {(fire != null ? "yes" : "no")}, death {(death != null ? "yes" : "no")}.");
 
             SelfTest(character);
+        }
+
+        /// <summary>
+        /// Grenade throws, on a full-body layer over everything else: the game cross-fades into
+        /// one when a remote player throws, picked by their stance - crouched, running or
+        /// standing. Which Mixamo file is which is worked out from the clips themselves: a
+        /// "run" in the name is the running throw, and of the others the one that keeps the
+        /// hips lowest is the crouched one. Each also records when the grenade leaves the hand,
+        /// so the game can start the animation just before that and the grenade appears on cue.
+        /// </summary>
+        static void BuildThrowLayer(AnimatorController controller, ArtLibrary.Character character,
+                                    List<Clip> clips, Clip idle)
+        {
+            character.ThrowLayer = -1;
+            character.ThrowStand = character.ThrowCrouch = character.ThrowRun = null;
+
+            var throws = clips.Where(c => c.Gait == Gait.Throw).ToList();
+            if (throws.Count == 0) return;
+
+            var runThrow = throws.FirstOrDefault(c => c.File.ToLowerInvariant().Contains("run"));
+            var still = throws.Where(c => c != runThrow)
+                              .Select(c => (clip: c, hips: CurveMean(c.Anim, "RootT.y")))
+                              .OrderBy(x => x.hips).ToList();
+            float standingHips = idle != null ? CurveMean(idle.Anim, "RootT.y") : 1f;
+
+            Clip standThrow = null, crouchThrow = null;
+            if (still.Count >= 2)
+            {
+                crouchThrow = still[0].clip;
+                standThrow = still[still.Count - 1].clip;
+            }
+            else if (still.Count == 1)
+            {
+                if (still[0].hips < standingHips * 0.8f) crouchThrow = still[0].clip;
+                else standThrow = still[0].clip;
+            }
+
+            controller.AddLayer("Throw");
+            var layers = controller.layers;
+            var layer = layers[layers.Length - 1];
+            layer.defaultWeight = 1f;
+            layer.blendingMode = AnimatorLayerBlendingMode.Override;   // whole body, no mask
+
+            var sm = layer.stateMachine;
+            var ready = sm.AddState("Ready");   // no motion: the layers below show through
+            sm.defaultState = ready;
+
+            ArtLibrary.AnimMove Add(string name, Clip clip)
+            {
+                if (clip == null) return null;
+                var state = sm.AddState(name);
+                state.motion = clip.Anim;
+                var done = state.AddTransition(ready);
+                done.hasExitTime = true;
+                done.exitTime = 0.92f;
+                done.duration = 0.25f;
+                var died = state.AddTransition(ready);
+                died.AddCondition(AnimatorConditionMode.If, 0f, "Dead");
+                died.hasExitTime = false;
+                died.duration = 0.1f;
+                return new ArtLibrary.AnimMove { State = name, Release = ReleaseTime(clip.Anim), Length = clip.Anim.length };
+            }
+
+            character.ThrowStand = Add("ThrowStand", standThrow);
+            character.ThrowCrouch = Add("ThrowCrouch", crouchThrow);
+            character.ThrowRun = Add("ThrowRun", runThrow);
+            controller.layers = layers;
+            character.ThrowLayer = layers.Length - 1;
+
+            string Describe(string label, Clip c, ArtLibrary.AnimMove m) => c == null ? $"{label} none"
+                : $"{label} \"{c.File}\" (hips {CurveMean(c.Anim, "RootT.y"):F2}, lets go at {m.Release:F2} of {m.Length:F2} s)";
+            Debug.Log($"<b>CombatPrep</b>: grenade throws - {Describe("standing", standThrow, character.ThrowStand)}, " +
+                      $"{Describe("crouched", crouchThrow, character.ThrowCrouch)}, " +
+                      $"{Describe("running", runThrow, character.ThrowRun)}; standing idle hips {standingHips:F2}.");
+        }
+
+        /// <summary>A humanoid curve's average over the clip - body height (RootT.y) tells a crouch.</summary>
+        static float CurveMean(AnimationClip clip, string property)
+        {
+            var curve = AnimationUtility.GetEditorCurve(clip,
+                EditorCurveBinding.FloatCurve("", typeof(Animator), property));
+            if (curve == null || curve.length == 0) return 1f;
+            const int samples = 40;
+            float sum = 0f;
+            for (int i = 0; i < samples; i++) sum += curve.Evaluate(clip.length * (i + 0.5f) / samples);
+            return sum / samples;
+        }
+
+        /// <summary>
+        /// When the grenade leaves the hand: the moment the throwing hand is sweeping forward
+        /// fastest, read from the right-hand goal curve Unity stores in every Humanoid clip.
+        /// </summary>
+        static float ReleaseTime(AnimationClip clip)
+        {
+            var z = AnimationUtility.GetEditorCurve(clip,
+                EditorCurveBinding.FloatCurve("", typeof(Animator), "RightHandT.z"));
+            float fallback = clip.length * 0.45f;
+            if (z == null || z.length < 2) return fallback;
+
+            const float dt = 1f / 60f;
+            float fastest = float.MinValue, at = fallback;
+            for (float t = dt; t <= clip.length; t += dt)
+            {
+                float speed = (z.Evaluate(t) - z.Evaluate(t - dt)) / dt;
+                if (speed > fastest) { fastest = speed; at = t; }
+            }
+            return at;
         }
 
         /// <summary>

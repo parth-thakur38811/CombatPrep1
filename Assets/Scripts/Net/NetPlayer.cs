@@ -372,10 +372,13 @@ namespace CombatPrep.Net
             real.Detonated = centre => GrenadeBlastServer(id, centre);
         }
 
-        /// <summary>Everyone else: the same grenade flying on their screen.</summary>
+        /// <summary>Everyone else: the thrower's arm going over, and the grenade flying.</summary>
         [Rpc(SendTo.NotOwner)]
         void GrenadeFlightRpc(int id, Vector3 origin, Vector3 velocity)
-            => Grenade.SpawnVisual(NetworkObjectId, id, origin, velocity);
+        {
+            if (_avatar != null) _avatar.OnThrow();
+            Grenade.SpawnVisual(NetworkObjectId, id, origin, velocity);
+        }
 
         /// <summary>
         /// Server, when the real grenade's fuse runs out: an explosion on every screen, then

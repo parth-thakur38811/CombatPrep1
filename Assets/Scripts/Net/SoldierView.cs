@@ -1,4 +1,5 @@
 using UnityEngine;
+using CombatPrep.Core;
 using CombatPrep.Weapons;
 
 namespace CombatPrep.Net
@@ -20,6 +21,13 @@ namespace CombatPrep.Net
         const float FireHold = 0.35f;
         /// <summary>How long a body lies after the death animation starts, before it's hidden.</summary>
         const float DeathLinger = 2.4f;
+        /// <summary>
+        /// A throw is shown from this long before the grenade leaves the hand: the grenade
+        /// itself appears the moment the throw arrives, so the arm has to be nearly there.
+        /// </summary>
+        const float ThrowLead = 0.12f;
+        /// <summary>Moving faster than this, a throw is the running one.</summary>
+        const float RunningThrowSpeed = 2.5f;
 
         static readonly int MoveX = Animator.StringToHash("MoveX");
         static readonly int MoveZ = Animator.StringToHash("MoveZ");
@@ -29,6 +37,9 @@ namespace CombatPrep.Net
 
         Animator _animator;
         bool _hasDeath;
+        int _throwLayer = -1;
+        ArtLibrary.AnimMove _throwStand, _throwCrouch, _throwRun;
+        float _throwUntil = -1f;
         Transform _spine, _chest, _upperChest, _head;
         Transform _handR, _handL, _fingersR, _fingersL;
         Transform _gunMount;
@@ -42,10 +53,14 @@ namespace CombatPrep.Net
         bool _dead;
         float _hideAt = -1f;
 
-        public void Init(Animator animator, WeaponModel gun, Transform gunMount, bool hasDeath)
+        public void Init(Animator animator, WeaponModel gun, Transform gunMount, ArtLibrary.Character art)
         {
             _animator = animator;
-            _hasDeath = hasDeath;
+            _hasDeath = art.HasDeath;
+            _throwLayer = art.ThrowLayer;
+            _throwStand = art.ThrowStand;
+            _throwCrouch = art.ThrowCrouch;
+            _throwRun = art.ThrowRun;
 
             _spine = animator.GetBoneTransform(HumanBodyBones.Spine);
             _chest = animator.GetBoneTransform(HumanBodyBones.Chest);
@@ -71,9 +86,42 @@ namespace CombatPrep.Net
             _lastShot = Time.time;
         }
 
+        /// <summary>
+        /// A grenade throw: standing, crouched or on the run to match what the player is doing,
+        /// with the gun put away until the arm comes back down.
+        /// </summary>
+        public override void OnThrow()
+        {
+            if (_animator == null || _dead || _throwLayer < 0 || _throwLayer >= _animator.layerCount) return;
+            var move = PickThrow();
+            if (move == null) return;
+
+            float start = Mathf.Clamp(move.Release - ThrowLead, 0f, move.Length);
+            _animator.CrossFadeInFixedTime(move.State, 0.08f, _throwLayer, start);
+            _throwUntil = Time.time + Mathf.Max(0.3f, (move.Length - start) * 0.95f);
+            ShowGun(false);
+        }
+
+        ArtLibrary.AnimMove PickThrow()
+        {
+            static bool Ok(ArtLibrary.AnimMove m) => m != null && m.Valid;
+            if (Stance > 0.5f && Ok(_throwCrouch)) return _throwCrouch;
+            if (_move.magnitude > RunningThrowSpeed && Ok(_throwRun)) return _throwRun;
+            if (Ok(_throwStand)) return _throwStand;
+            if (Ok(_throwRun)) return _throwRun;
+            return Ok(_throwCrouch) ? _throwCrouch : null;
+        }
+
+        void ShowGun(bool shown)
+        {
+            if (Weapon != null && Weapon.Root != null) Weapon.Root.gameObject.SetActive(shown);
+        }
+
         public override void OnDied()
         {
             _dead = true;
+            _throwUntil = -1f;
+            ShowGun(true);
             SetColliders(false);    // a falling body can't be shot or walked into
             if (_hasDeath) _hideAt = Time.time + DeathLinger;
             else SetVisible(false);
@@ -82,6 +130,8 @@ namespace CombatPrep.Net
         public override void OnRespawned()
         {
             _dead = false;
+            _throwUntil = -1f;
+            ShowGun(true);
             _hideAt = -1f;
             _hasLastPos = false;    // they teleported; that isn't a sprint
             _move = Vector2.zero;
@@ -115,6 +165,12 @@ namespace CombatPrep.Net
             _animator.SetFloat(Crouch, Stance);
             _animator.SetBool(Firing, !_dead && Time.time - _lastShot < FireHold);
             _animator.SetBool(Dead, _dead);
+
+            if (_throwUntil > 0f && Time.time >= _throwUntil)
+            {
+                _throwUntil = -1f;
+                ShowGun(true);
+            }
 
             if (_hideAt > 0f && Time.time >= _hideAt)
             {

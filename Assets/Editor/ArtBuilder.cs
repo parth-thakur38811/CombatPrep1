@@ -74,7 +74,7 @@ namespace CombatPrep.EditorTools
         const string SkyPath = Root + "/Sky/overcast_soil_puresky_2k.hdr";
 
         /// <summary>Bump to force every machine to rebuild after changing this file.</summary>
-        const int Version = 2;
+        const int Version = 3;
         const int MaskSize = 512;
 
         public static bool IsArt(string path) => path.StartsWith(Root + "/");
@@ -330,7 +330,7 @@ namespace CombatPrep.EditorTools
             // 4. Sky. Measured from the file: ~1.8 overhead, ~0.75 near the horizon - scaled
             // down hard, because a storm sits far darker than the overcast day it was shot on.
             lib.Sky = AssetDatabase.LoadAssetAtPath<Texture>(SkyPath);
-            lib.SkyExposure = 0.1f;
+            lib.SkyExposure = 0.12f;
 
             lib.SourceStamp = ComputeStamp();
             EditorUtility.SetDirty(lib);

@@ -58,6 +58,10 @@ namespace CombatPrep.Net
         public readonly NetworkVariable<short> PitchDeci = new(
             0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+        /// <summary>Owner's stance, so other players see (and can only hit) a crouched body.</summary>
+        public readonly NetworkVariable<bool> Crouched = new(
+            false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+
         // --- server-written combat state ---
         public readonly NetworkVariable<float> Health = new(MaxHealth);
         public readonly NetworkVariable<int> Kills = new();
@@ -146,8 +150,23 @@ namespace CombatPrep.Net
 
             if (!_built) return;
 
-            if (IsOwner && _hasRig) PublishPitch();
-            else if (_avatar != null) _avatar.SetPitch(PitchDeci.Value / 10f);
+            if (IsOwner && _hasRig)
+            {
+                PublishPitch();
+                PublishStance();
+            }
+            else if (_avatar != null)
+            {
+                _avatar.SetPitch(PitchDeci.Value / 10f);
+                _avatar.SetCrouch(Crouched.Value);
+            }
+        }
+
+        /// <summary>Like pitch, only sent when it changes - a key press, not a stream.</summary>
+        void PublishStance()
+        {
+            bool crouched = _rig.Motor != null && _rig.Motor.IsCrouching;
+            if (crouched != Crouched.Value) Crouched.Value = crouched;
         }
 
         // ------------------------------------------------------------------- building

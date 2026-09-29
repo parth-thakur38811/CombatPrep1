@@ -59,7 +59,8 @@ namespace CombatPrep.Core
             Lanes(root);
             Perimeter(root);
             Clutter(root);
-            Warzone(root);      // strictly last - see RangeBuilder.Warzone.cs
+            Warzone(root);      // after every gameplay prop - see RangeBuilder.Warzone.cs
+            OnlineCover(root);  // built for everyone, shown only online - see RangeBuilder.Online.cs
 
             Random.state = prev;
 
@@ -536,12 +537,15 @@ namespace CombatPrep.Core
         /// </summary>
         static void Barrel(Transform parent, Vector3 pos, float yaw)
         {
-            var t = Prim.Empty(parent, "Barrel", pos);
-            t.localRotation = Quaternion.Euler(0f, yaw, 0f);
-
             // Drawn whichever barrel gets built, to keep the seeded stream in step.
             Color c = Random.value < 0.5f ? Mat.Rust : new Color(0.20f, 0.26f, 0.19f);
-            bool burning = FX.ParticleKit.Hash01(pos) < 0.3f;
+            BuildBarrel(parent, pos, yaw, c, FX.ParticleKit.Hash01(pos) < 0.3f);
+        }
+
+        static void BuildBarrel(Transform parent, Vector3 pos, float yaw, Color c, bool burning)
+        {
+            var t = Prim.Empty(parent, "Barrel", pos);
+            t.localRotation = Quaternion.Euler(0f, yaw, 0f);
 
             var model = burning ? Art.BurnBarrel : Art.Barrel;
             if (ArtLibrary.Has(model))

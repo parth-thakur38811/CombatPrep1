@@ -55,7 +55,7 @@ namespace CombatPrep.Core
 
         [Header("Sky")]
         public Texture Sky;
-        public float SkyExposure = 0.1f;
+        public float SkyExposure = 0.12f;
 
         /// <summary>Fingerprint of the source files this was built from; the builder compares it.</summary>
         [HideInInspector] public string SourceStamp;

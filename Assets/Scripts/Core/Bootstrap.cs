@@ -124,20 +124,20 @@ namespace CombatPrep.Core
             var key = keyGo.AddComponent<Light>();
             key.type = LightType.Directional;
             key.color = new Color(0.66f, 0.74f, 0.86f);
-            key.intensity = 0.7f;
+            key.intensity = 0.85f;
             key.shadows = LightShadows.Soft;
             key.shadowStrength = 0.55f;
             keyGo.transform.rotation = Quaternion.Euler(58f, 200f, 0f);
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.25f, 0.28f, 0.33f);
-            RenderSettings.ambientEquatorColor = new Color(0.17f, 0.18f, 0.20f);
-            RenderSettings.ambientGroundColor = new Color(0.08f, 0.08f, 0.085f);
+            RenderSettings.ambientSkyColor = new Color(0.31f, 0.35f, 0.41f);
+            RenderSettings.ambientEquatorColor = new Color(0.21f, 0.225f, 0.25f);
+            RenderSettings.ambientGroundColor = new Color(0.10f, 0.10f, 0.105f);
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
             RenderSettings.fogColor = Storm.Horizon;
-            RenderSettings.fogDensity = 0.0105f;
+            RenderSettings.fogDensity = 0.0095f;
 
             // Fallback sky, only if the storm shader didn't make it into a build.
             var skyShader = Mat.Require("Skybox/Procedural");
@@ -183,8 +183,8 @@ namespace CombatPrep.Core
             bloom.dirtIntensity.Override(2.2f);
 
             var color = profile.Add<ColorAdjustments>(true);
-            color.postExposure.Override(0.1f);
-            color.contrast.Override(18f);
+            color.postExposure.Override(0.3f);
+            color.contrast.Override(15f);
             color.saturation.Override(-30f);
             color.colorFilter.Override(new Color(0.92f, 0.96f, 1f));
 
@@ -198,7 +198,7 @@ namespace CombatPrep.Core
             smh.highlights.Override(new Vector4(1.04f, 1.0f, 0.96f, 0f));
 
             var vig = profile.Add<Vignette>(true);
-            vig.intensity.Override(0.36f);
+            vig.intensity.Override(0.3f);
             vig.smoothness.Override(0.5f);
 
             var grain = profile.Add<FilmGrain>(true);
@@ -259,6 +259,7 @@ namespace CombatPrep.Core
         void StartGame(WeaponEntry entry, SkinDefinition skin)
         {
             CloseMenu();
+            RangeBuilder.SetOnlineCover(false);   // the middle lanes belong to the targets
 
             var root = new GameObject("Player");
             root.transform.position = new Vector3(0f, 0.2f, -3f);
@@ -277,6 +278,7 @@ namespace CombatPrep.Core
         void PlayOnline(WeaponEntry entry, SkinDefinition skin)
         {
             CloseMenu();
+            RangeBuilder.SetOnlineCover(true);    // up before the lobby, so its orbit shot shows it
             NetPlayer.PendingWeapon = Mathf.Max(0, Array.IndexOf(WeaponLibrary.All, entry));
             NetPlayer.PendingSkin = Mathf.Max(0, Array.IndexOf(SkinLibrary.All, skin));
             _leaving = false;

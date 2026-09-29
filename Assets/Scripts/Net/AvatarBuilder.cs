@@ -7,18 +7,38 @@ using CombatPrep.Weapons;
 
 namespace CombatPrep.Net
 {
-    /// <summary>Drives a remote player's avatar: smoothed aim pitch and a camera-facing nameplate.</summary>
+    /// <summary>
+    /// Drives a remote player's avatar: smoothed aim pitch, crouch stance, and a
+    /// camera-facing nameplate.
+    /// </summary>
     public class AvatarView : MonoBehaviour
     {
+        /// <summary>Height of the hip joints when standing - where the legs meet the upper body.</summary>
+        public const float HipHeight = 0.80f;
+
+        /// <summary>
+        /// How far the head drops when crouched: exactly what the owner's own camera drops
+        /// (PlayerMotor: 1.8 m stance to 1.15 m, eye 1.62 m to 0.97 m). The body others can see
+        /// and shoot behind cover is then the body its owner is actually hiding.
+        /// </summary>
+        const float CrouchDrop = 0.65f;
+
         public Transform AimPivot;
+        public Transform Upper;
+        public Transform HipL, HipR, KneeL, KneeR;
         public Transform Nameplate;
         public Text NameText;
         public WeaponModel Weapon;
 
         float _pitch, _targetPitch;
+        float _stance, _stanceTarget;
+        bool _poseApplied;
 
         /// <summary>Pitch arrives in network steps; it is eased so the arms don't stutter.</summary>
         public void SetPitch(float degrees) => _targetPitch = degrees;
+
+        /// <summary>Crouch arrives as a flag; the pose eases in at the owner's own stance speed.</summary>
+        public void SetCrouch(bool crouched) => _stanceTarget = crouched ? 1f : 0f;
 
         public void SetName(string n)
         {
@@ -47,9 +67,41 @@ namespace CombatPrep.Net
             if (AimPivot != null)
                 AimPivot.localRotation = Quaternion.Euler(Mathf.Clamp(_pitch, -70f, 70f), 0f, 0f);
 
+            if (!_poseApplied || _stance != _stanceTarget)
+            {
+                _stance = Mathf.Lerp(_stance, _stanceTarget, 1f - Mathf.Exp(-10f * Time.deltaTime));
+                if (Mathf.Abs(_stance - _stanceTarget) < 0.002f) _stance = _stanceTarget;
+                ApplyStance(_stance);
+                _poseApplied = true;
+            }
+
             var cam = Camera.main;
             if (Nameplate != null && cam != null)
                 Nameplate.rotation = Quaternion.LookRotation(Nameplate.position - cam.transform.position);
+        }
+
+        /// <summary>
+        /// Standing (0) to crouched (1). The crouch is a tactical kneel - left foot planted,
+        /// right knee down - with the upper body sunk and leaning a touch forward. The hitboxes
+        /// ride on these same joints, so they crouch too.
+        /// </summary>
+        void ApplyStance(float c)
+        {
+            if (Upper == null) return;
+
+            Upper.localPosition = new Vector3(0f, HipHeight - CrouchDrop * c, 0.03f * c);
+            Upper.localRotation = Quaternion.Euler(6f * c, 0f, 0f);
+
+            float hipY = HipHeight - 0.33f * c;
+            HipL.localPosition = new Vector3(-0.11f, hipY, 0f);
+            HipR.localPosition = new Vector3(0.11f, hipY, 0f);
+
+            // Left thigh swings forward, shin drops straight to the planted foot.
+            HipL.localRotation = Quaternion.Euler(-80f * c, 0f, 0f);
+            KneeL.localRotation = Quaternion.Euler(80f * c, 0f, 0f);
+            // Right thigh points down to a knee on the ground, shin lies back along it.
+            HipR.localRotation = Quaternion.Euler(10f * c, 0f, 0f);
+            KneeR.localRotation = Quaternion.Euler(80f * c, 0f, 0f);
         }
     }
 
@@ -103,21 +155,24 @@ namespace CombatPrep.Net
             // Hitzones are the Part() boxes below and are unchanged by the kit; everything
             // added with a bare Prim.Box is visual only, with no collider to catch a bullet.
 
-            // --- lower body: stays upright, turns with the root's synced yaw ---
-            Part(root, "LegL", new Vector3(-0.11f, 0.40f, 0f), new Vector3(0.18f, 0.80f, 0.20f), trousers, Zone.Limb);
-            Part(root, "LegR", new Vector3(0.11f, 0.40f, 0f), new Vector3(0.18f, 0.80f, 0.20f), trousers, Zone.Limb);
-            Prim.Box(root, "BootL", new Vector3(-0.11f, 0.06f, 0.03f), new Vector3(0.2f, 0.12f, 0.28f), Webbing, 0f, 0.45f);
-            Prim.Box(root, "BootR", new Vector3(0.11f, 0.06f, 0.03f), new Vector3(0.2f, 0.12f, 0.28f), Webbing, 0f, 0.45f);
-            Part(root, "Torso", new Vector3(0f, 1.11f, 0f), new Vector3(0.50f, 0.62f, 0.28f), uniform, Zone.Body);
+            // --- legs: hip and knee joints, so a crouch folds them rather than squashing them.
+            // Everything turns with the root's synced yaw. ---
+            view.HipL = Leg(root, "L", -0.11f, trousers, out view.KneeL);
+            view.HipR = Leg(root, "R", 0.11f, trousers, out view.KneeR);
+
+            // --- upper body: everything from the hips up, lowered as one when crouching ---
+            var upper = Prim.Empty(root, "Upper", new Vector3(0f, AvatarView.HipHeight, 0f));
+            view.Upper = upper;
+            Part(upper, "Torso", new Vector3(0f, 0.31f, 0f), new Vector3(0.50f, 0.62f, 0.28f), uniform, Zone.Body);
 
             // Plate carrier and magazine pouches.
-            Prim.Box(root, "Vest", new Vector3(0f, 1.16f, 0f), new Vector3(0.54f, 0.44f, 0.33f), Webbing, 0f, 0.3f);
+            Prim.Box(upper, "Vest", new Vector3(0f, 0.36f, 0f), new Vector3(0.54f, 0.44f, 0.33f), Webbing, 0f, 0.3f);
             for (int i = -1; i <= 1; i++)
-                Prim.Box(root, "Pouch", new Vector3(i * 0.13f, 1.04f, 0.18f), new Vector3(0.11f, 0.15f, 0.06f),
+                Prim.Box(upper, "Pouch", new Vector3(i * 0.13f, 0.24f, 0.18f), new Vector3(0.11f, 0.15f, 0.06f),
                          Webbing * 1.3f, 0f, 0.3f);
 
-            // --- upper body: tilts with look pitch ---
-            var aim = Prim.Empty(root, "AimPivot", new Vector3(0f, 1.40f, 0f));
+            // --- shoulders up: tilts with look pitch ---
+            var aim = Prim.Empty(upper, "AimPivot", new Vector3(0f, 0.60f, 0f));
             view.AimPivot = aim;
 
             Part(aim, "Head", new Vector3(0f, 0.24f, 0f), new Vector3(0.30f, 0.30f, 0.30f), Balaclava, Zone.Head);
@@ -139,7 +194,7 @@ namespace CombatPrep.Net
             SkinApplier.Apply(model, skin);
             view.Weapon = model;
 
-            BuildNameplate(root, view, displayName, id);
+            BuildNameplate(upper, 2.15f - AvatarView.HipHeight, view, displayName, id);
 
             WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
             return view;
@@ -147,6 +202,17 @@ namespace CombatPrep.Net
 
         // Set for the duration of one Build call, so Part() needn't thread it through.
         static IDamageable _owner;
+
+        /// <summary>One leg: hip joint, thigh, knee joint, shin and boot. Both segments are hitboxes.</summary>
+        static Transform Leg(Transform root, string side, float x, Color trousers, out Transform knee)
+        {
+            var hip = Prim.Empty(root, "Hip" + side, new Vector3(x, AvatarView.HipHeight, 0f));
+            Part(hip, "Thigh" + side, new Vector3(0f, -0.21f, 0f), new Vector3(0.18f, 0.42f, 0.20f), trousers, Zone.Limb);
+            knee = Prim.Empty(hip, "Knee" + side, new Vector3(0f, -0.42f, 0f));
+            Part(knee, "Shin" + side, new Vector3(0f, -0.19f, 0f), new Vector3(0.17f, 0.38f, 0.19f), trousers, Zone.Limb);
+            Prim.Box(knee, "Boot" + side, new Vector3(0f, -0.32f, 0.03f), new Vector3(0.2f, 0.12f, 0.28f), Webbing, 0f, 0.45f);
+            return hip;
+        }
 
         /// <summary>A body part: solid collider plus a hitzone reporting to this player.</summary>
         static Transform Part(Transform parent, string name, Vector3 pos, Vector3 size, Color c,
@@ -159,11 +225,11 @@ namespace CombatPrep.Net
             return t;
         }
 
-        static void BuildNameplate(Transform root, AvatarView view, string displayName, Color accent)
+        static void BuildNameplate(Transform parent, float height, AvatarView view, string displayName, Color accent)
         {
             var go = new GameObject("Nameplate", typeof(RectTransform), typeof(Canvas));
-            go.transform.SetParent(root, false);
-            go.transform.localPosition = new Vector3(0f, 2.15f, 0f);
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = new Vector3(0f, height, 0f);
             go.transform.localScale = Vector3.one * 0.01f;
 
             var canvas = go.GetComponent<Canvas>();

@@ -39,6 +39,7 @@ Material:
     - _TexBlend: 0
     - _TexExposure: 0.35
     - _TexRotation: 0
+    - _TexSaturation: 0.5
     m_Colors:
     - _CloudDark: {r: 0.09999997, g: 0.10999996, b: 0.12499998, a: 1}
     - _CloudLight: {r: 0.22999996, g: 0.24499995, b: 0.26999995, a: 1}
@@ -48,6 +49,7 @@ Material:
     - _GlowDir: {r: 1, g: 0, b: 0, a: 0}
     - _GroundColor: {r: 0.09999997, g: 0.10499997, b: 0.11499997, a: 1}
     - _HorizonColor: {r: 0.18999997, g: 0.20999995, b: 0.23999995, a: 1}
+    - _TexTint: {r: 0.9, g: 0.95, b: 1.05, a: 1}
     - _Wind: {r: 1, g: 0.35, b: 0.02, a: 0}
     - _ZenithColor: {r: 0.06999998, g: 0.079999976, b: 0.09499996, a: 1}
   m_BuildTextureStacks: []

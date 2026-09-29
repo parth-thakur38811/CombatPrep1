@@ -331,6 +331,7 @@ namespace CombatPrep.Net
         {
             if (_avatar == null) return;
 
+            _avatar.OnShot();
             Vector3 muzzle = _avatar.MuzzlePosition;
             var def = Weapon.Def;
 
@@ -364,7 +365,7 @@ namespace CombatPrep.Net
             }
             else if (_avatar != null)
             {
-                _avatar.SetVisible(false);
+                _avatar.OnDied();
             }
         }
 
@@ -392,7 +393,7 @@ namespace CombatPrep.Net
             }
             else if (_avatar != null)
             {
-                _avatar.SetVisible(true);
+                _avatar.OnRespawned();
             }
         }
 

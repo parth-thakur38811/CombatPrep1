@@ -63,6 +63,9 @@ namespace CombatPrep.Weapons
             SightDistance = model.SightDistance;
             Vector3 sightLocal = model.SightPoint.localPosition;
             _adsPosition = new Vector3(0f, 0f, SightDistance) - sightLocal;
+
+            // This is the gun you look through, so its sight gets a reticle.
+            if (model.Reticle != null) model.Reticle.SetActive(true);
         }
 
         public void Tick(float dt, bool aiming, Vector2 lookDelta)

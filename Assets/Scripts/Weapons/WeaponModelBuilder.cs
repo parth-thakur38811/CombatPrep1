@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using CombatPrep.Core;
 
 namespace CombatPrep.Weapons
@@ -38,7 +39,14 @@ namespace CombatPrep.Weapons
         public Transform Muzzle;      // tracer / muzzle-flash origin, at the tip
         public Transform EjectPort;
         public Transform SightPoint;  // bore centre; the ADS pose is solved from this
+        public Transform Grip;        // firing hand, for third-person soldiers
+        public Transform Support;     // other hand
         public float SightDistance = 0.22f;
+        /// <summary>
+        /// The optic's reticle disc, if it has one. Built switched off - only the first-person
+        /// gun turns it on (WeaponAnimator.Init).
+        /// </summary>
+        public GameObject Reticle;
         public readonly List<WeaponPart> Parts = new();
     }
 
@@ -48,14 +56,20 @@ namespace CombatPrep.Weapons
     ///
     /// Optics are built as rings of segment boxes rather than solid blocks, so the bore is
     /// genuinely open and you aim *through* the sight instead of at the back of it. The
-    /// reticle is an emissive object floating on the sight axis; because the ADS pose is
-    /// solved to put SightPoint dead centre, it lands exactly on the screen centre.
+    /// reticle is not geometry on the gun: it is drawn on a disc of glass in the sight, laid
+    /// out around the exact centre of the screen - where every shot goes - so it stays on the
+    /// point of impact while the gun kicks, and stays pixel-thin at any zoom
+    /// (Shaders/Resources/Reticle.shader).
     /// </summary>
     public static class WeaponModelBuilder
     {
-        static Material _reticleMat, _glassMat;
+        static Material _beadMat, _glassMat, _dotReticle, _scopeReticle;
+        static Shader _reticleShader;
+        static bool _lookedForReticle;
 
-        static Material Reticle => _reticleMat ??= Mat.Additive(new Color(1f, 0.18f, 0.12f));
+        static readonly Color ReticleRed = new(1f, 0.07f, 0.05f, 1f);
+
+        static Material Bead => _beadMat ??= Mat.Additive(new Color(1f, 0.18f, 0.12f));
         static Material Glass => _glassMat ??= Mat.Glass(new Color(0.55f, 0.72f, 0.78f, 0.13f));
 
         public static WeaponModel Build(Transform parent, WeaponShape s)
@@ -159,6 +173,16 @@ namespace CombatPrep.Weapons
             model.EjectPort = Prim.Empty(root, "EjectOrigin",
                 new Vector3(s.ReceiverW * 0.7f, s.ReceiverH * 0.2f, 0.07f));
 
+            // Where a third-person soldier's hands go: the firing hand round the grip, the other
+            // on the foregrip or under the handguard. A pistol has neither, so its "support"
+            // point is out along the barrel - held in a rifle pose, it simply points that way.
+            model.Grip = Prim.Empty(root, "GripPoint", new Vector3(0f, -s.ReceiverH * 0.8f, -halfRec * 0.42f));
+            Vector3 support;
+            if (s.HandguardLen <= 0.01f) support = new Vector3(0f, -s.ReceiverH * 0.3f, tipZ);
+            else if (s.Foregrip) support = new Vector3(0f, -s.ReceiverH * 0.85f, halfRec + s.HandguardLen * 0.68f);
+            else support = new Vector3(0f, -s.ReceiverH * 0.5f, halfRec + s.HandguardLen * 0.45f);
+            model.Support = Prim.Empty(root, "SupportPoint", support);
+
             return model;
         }
 
@@ -217,22 +241,9 @@ namespace CombatPrep.Weapons
             Prim.Quad(root, "Lens", new Vector3(0f, axisY, z + len * 0.5f + 0.004f),
                       new Vector2(bore, bore), Glass);
 
-            // --- reticle, on the sight axis ---
-            var reticle = Prim.Empty(root, "Reticle", new Vector3(0f, axisY, z + len * 0.34f));
-            if (scope)
-            {
-                float arm = bore * 0.42f, t = bore * 0.018f;
-                // Crosshair with a gap at the centre so the aiming point stays readable.
-                MakeReticleBar(model, reticle, "Up", new Vector3(0f, arm * 0.62f, 0f), new Vector3(t, arm * 0.7f, t));
-                MakeReticleBar(model, reticle, "Down", new Vector3(0f, -arm * 0.62f, 0f), new Vector3(t, arm * 0.7f, t));
-                MakeReticleBar(model, reticle, "Left", new Vector3(-arm * 0.62f, 0f, 0f), new Vector3(arm * 0.7f, t, t));
-                MakeReticleBar(model, reticle, "Right", new Vector3(arm * 0.62f, 0f, 0f), new Vector3(arm * 0.7f, t, t));
-                MakeReticleDot(model, reticle, bore * 0.030f);
-            }
-            else
-            {
-                MakeReticleDot(model, reticle, bore * 0.058f);
-            }
+            // Reticle disc, just inside the front ring: the ring's opening is then exactly the
+            // edge of what you can see of it, as with a real sight's field stop.
+            model.Reticle = BuildReticle(root, new Vector3(0f, axisY, z + len * 0.5f), bore, scope);
 
             // A magnified optic is aligned from just behind its rear ring, so the eye sits at
             // a realistic eye relief instead of inside the tube.
@@ -263,23 +274,73 @@ namespace CombatPrep.Weapons
             // A dim emissive bead on the front post - irons are otherwise near-invisible
             // against a dark target at range.
             var bead = Prim.Ball(root, "Bead", new Vector3(0f, axisY + 0.012f, front), 0.005f, Color.white);
-            Prim.SetMaterial(bead, Reticle);
+            Prim.SetMaterial(bead, Bead);
 
             model.SightPoint = Prim.Empty(root, "SightPoint", new Vector3(0f, axisY + 0.012f, rear));
         }
 
-        // Reticle geometry is intentionally left out of model.Parts so no skin can repaint it.
+        // --------------------------------------------------------------------- reticle
 
-        static void MakeReticleBar(WeaponModel model, Transform parent, string name, Vector3 pos, Vector3 size)
+        /// <summary>
+        /// A disc the size of the bore, for CombatPrep/Reticle to draw on: a small dot for a red
+        /// dot sight, a duplex crosshair with a centre dot for a scope. It is left out of
+        /// model.Parts so no skin can repaint it, and built switched off - otherwise every
+        /// third-person or preview gun whose lens happened to cross the middle of your screen
+        /// would show a dot.
+        /// </summary>
+        static GameObject BuildReticle(Transform root, Vector3 pos, float bore, bool scope)
         {
-            var t = Prim.Box(parent, name, pos, size, Color.white);
-            Prim.SetMaterial(t, Reticle);
+            var material = ReticleMaterial(scope);
+            Transform t;
+            if (material != null)
+            {
+                t = Prim.Quad(root, "Reticle", pos, new Vector2(bore, bore), material);
+            }
+            else
+            {
+                // The shader ships from a Resources folder, so this shouldn't happen - but a
+                // plain dot on the sight axis still aims true once the sights are up.
+                t = Prim.Ball(root, "Reticle", pos, bore * 0.03f, Color.white);
+                Prim.SetMaterial(t, Bead);
+            }
+
+            var r = t.GetComponent<Renderer>();
+            r.shadowCastingMode = ShadowCastingMode.Off;
+            r.receiveShadows = false;
+            t.gameObject.SetActive(false);
+            return t.gameObject;
         }
 
-        static void MakeReticleDot(WeaponModel model, Transform parent, float diameter)
+        static Material ReticleMaterial(bool scope)
         {
-            var dot = Prim.Ball(parent, "Dot", Vector3.zero, diameter, Color.white);
-            Prim.SetMaterial(dot, Reticle);
+            if (!_lookedForReticle)
+            {
+                _lookedForReticle = true;
+                _reticleShader = Resources.Load<Shader>("Reticle");
+                if (_reticleShader == null)
+                    Debug.LogError("[Weapons] Reticle shader missing from Resources - using plain dots.");
+            }
+            if (_reticleShader == null) return null;
+
+            // Sizes in pixels at 1080p. The dot is ~3.5 px across: easy to find, small enough
+            // to cover no more than a head at 50 m. The scope's hairlines are a single pixel.
+            return scope
+                ? _scopeReticle ??= NewReticle("Gen_ScopeReticle", style: 1f, dotRadius: 1.4f)
+                : _dotReticle ??= NewReticle("Gen_DotReticle", style: 0f, dotRadius: 1.8f);
+        }
+
+        static Material NewReticle(string name, float style, float dotRadius)
+        {
+            var m = new Material(_reticleShader) { name = name };
+            m.SetColor("_BaseColor", ReticleRed);
+            m.SetFloat("_Style", style);
+            m.SetFloat("_DotRadius", dotRadius);
+            m.SetFloat("_LineWidth", 1f);
+            m.SetFloat("_PostWidth", 4f);
+            m.SetFloat("_PostStart", 130f);
+            m.SetFloat("_Gap", 5f);
+            m.renderQueue = (int)RenderQueue.Transparent + 60;   // over the lens glass
+            return m;
         }
 
         // --------------------------------------------------------------------- helpers

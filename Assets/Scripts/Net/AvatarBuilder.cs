@@ -8,10 +8,83 @@ using CombatPrep.Weapons;
 namespace CombatPrep.Net
 {
     /// <summary>
-    /// Drives a remote player's avatar: smoothed aim pitch, crouch stance, and a
-    /// camera-facing nameplate.
+    /// What NetPlayer drives on a remote player's body, whichever body it is: smoothed aim
+    /// pitch, crouch stance, shots, death and a camera-facing nameplate.
     /// </summary>
     public class AvatarView : MonoBehaviour
+    {
+        public Transform Nameplate;
+        public Text NameText;
+        public WeaponModel Weapon;
+
+        /// <summary>Look pitch in degrees, eased - positive is looking down.</summary>
+        protected float Pitch;
+        /// <summary>Standing (0) to crouched (1), eased at the owner's own stance speed.</summary>
+        protected float Stance;
+
+        float _targetPitch, _stanceTarget;
+
+        /// <summary>Pitch arrives in network steps; it is eased so the arms don't stutter.</summary>
+        public void SetPitch(float degrees) => _targetPitch = degrees;
+
+        /// <summary>Crouch arrives as a flag; the pose eases in rather than snapping.</summary>
+        public void SetCrouch(bool crouched) => _stanceTarget = crouched ? 1f : 0f;
+
+        public void SetName(string n)
+        {
+            if (NameText != null) NameText.text = n;
+        }
+
+        /// <summary>
+        /// Hides a dead player: renderers *and* colliders, so a corpse can't be seen, shot or
+        /// walked into during the respawn wait.
+        /// </summary>
+        public virtual void SetVisible(bool visible)
+        {
+            foreach (var r in GetComponentsInChildren<Renderer>(true)) r.enabled = visible;
+            SetColliders(visible);
+            if (Nameplate != null) Nameplate.gameObject.SetActive(visible);
+        }
+
+        protected void SetColliders(bool on)
+        {
+            foreach (var c in GetComponentsInChildren<Collider>(true)) c.enabled = on;
+        }
+
+        /// <summary>This player fired - everyone else's copy of them shows it.</summary>
+        public virtual void OnShot() { }
+
+        public virtual void OnDied() => SetVisible(false);
+
+        public virtual void OnRespawned() => SetVisible(true);
+
+        /// <summary>Where this player's shots appear to leave from, for others' tracers and flash.</summary>
+        public Vector3 MuzzlePosition => Weapon != null && Weapon.Muzzle != null
+            ? Weapon.Muzzle.position
+            : transform.position + Vector3.up * 1.4f;
+
+        void LateUpdate()
+        {
+            float dt = Time.deltaTime;
+            Pitch = Mathf.Lerp(Pitch, _targetPitch, 1f - Mathf.Exp(-18f * dt));
+            Stance = Mathf.Lerp(Stance, _stanceTarget, 1f - Mathf.Exp(-10f * dt));
+            if (Mathf.Abs(Stance - _stanceTarget) < 0.002f) Stance = _stanceTarget;
+
+            Pose();
+
+            var cam = Camera.main;
+            if (Nameplate != null && cam != null)
+                Nameplate.rotation = Quaternion.LookRotation(Nameplate.position - cam.transform.position);
+        }
+
+        /// <summary>Applies pitch and stance to the body, once a frame, after any animation.</summary>
+        protected virtual void Pose() { }
+    }
+
+    /// <summary>
+    /// The primitive soldier's pose: no animation, just joints set from pitch and stance.
+    /// </summary>
+    public class BlockyAvatarView : AvatarView
     {
         /// <summary>Height of the hip joints when standing - where the legs meet the upper body.</summary>
         public const float HipHeight = 0.80f;
@@ -26,58 +99,19 @@ namespace CombatPrep.Net
         public Transform AimPivot;
         public Transform Upper;
         public Transform HipL, HipR, KneeL, KneeR;
-        public Transform Nameplate;
-        public Text NameText;
-        public WeaponModel Weapon;
 
-        float _pitch, _targetPitch;
-        float _stance, _stanceTarget;
-        bool _poseApplied;
+        float _posedStance = -1f;
 
-        /// <summary>Pitch arrives in network steps; it is eased so the arms don't stutter.</summary>
-        public void SetPitch(float degrees) => _targetPitch = degrees;
-
-        /// <summary>Crouch arrives as a flag; the pose eases in at the owner's own stance speed.</summary>
-        public void SetCrouch(bool crouched) => _stanceTarget = crouched ? 1f : 0f;
-
-        public void SetName(string n)
+        protected override void Pose()
         {
-            if (NameText != null) NameText.text = n;
-        }
-
-        /// <summary>
-        /// Hides a dead player: renderers *and* colliders, so a corpse can't be seen, shot or
-        /// walked into during the respawn wait.
-        /// </summary>
-        public void SetVisible(bool visible)
-        {
-            foreach (var r in GetComponentsInChildren<Renderer>(true)) r.enabled = visible;
-            foreach (var c in GetComponentsInChildren<Collider>(true)) c.enabled = visible;
-            if (Nameplate != null) Nameplate.gameObject.SetActive(visible);
-        }
-
-        /// <summary>Where this player's shots appear to leave from, for others' tracers and flash.</summary>
-        public Vector3 MuzzlePosition => Weapon != null && Weapon.Muzzle != null
-            ? Weapon.Muzzle.position
-            : transform.position + Vector3.up * 1.4f;
-
-        void LateUpdate()
-        {
-            _pitch = Mathf.Lerp(_pitch, _targetPitch, 1f - Mathf.Exp(-18f * Time.deltaTime));
             if (AimPivot != null)
-                AimPivot.localRotation = Quaternion.Euler(Mathf.Clamp(_pitch, -70f, 70f), 0f, 0f);
+                AimPivot.localRotation = Quaternion.Euler(Mathf.Clamp(Pitch, -70f, 70f), 0f, 0f);
 
-            if (!_poseApplied || _stance != _stanceTarget)
+            if (Stance != _posedStance)
             {
-                _stance = Mathf.Lerp(_stance, _stanceTarget, 1f - Mathf.Exp(-10f * Time.deltaTime));
-                if (Mathf.Abs(_stance - _stanceTarget) < 0.002f) _stance = _stanceTarget;
-                ApplyStance(_stance);
-                _poseApplied = true;
+                ApplyStance(Stance);
+                _posedStance = Stance;
             }
-
-            var cam = Camera.main;
-            if (Nameplate != null && cam != null)
-                Nameplate.rotation = Quaternion.LookRotation(Nameplate.position - cam.transform.position);
         }
 
         /// <summary>
@@ -106,16 +140,16 @@ namespace CombatPrep.Net
     }
 
     /// <summary>
-    /// Builds the third-person body other players see: a blocky primitive soldier - muted
-    /// uniform, plate carrier, helmet, balaclava - holding their chosen weapon in their chosen
-    /// finish. The player's slot colour survives only where it helps: an armband, a band on
-    /// the helmet and the nameplate, so you can tell who's who without anyone glowing like a
-    /// toy in the gloom.
+    /// Builds the third-person body other players see, holding their chosen weapon in their
+    /// chosen finish. The player's slot colour survives only where it helps: an armband and
+    /// the nameplate (plus a helmet band on the primitive soldier), so you can tell who's who
+    /// without anyone glowing like a toy in the gloom.
     ///
-    /// Arms, head and gun hang off an aim pivot at the shoulders, so the whole upper body
-    /// tilts with the owner's synced look pitch - you can see where someone is aiming.
-    /// Every body part carries a collider on the remote-player layer, which both stops you
-    /// walking through other players and is what your shots will hit.
+    /// With the art library's soldier and its Mixamo animations present, that body is the
+    /// rigged soldier (SoldierView); otherwise it is a blocky primitive soldier - muted
+    /// uniform, plate carrier, helmet, balaclava - so a fresh clone still plays. Either way,
+    /// every body part carries a collider on the remote-player layer, which both stops you
+    /// walking through other players and is what your shots hit.
     /// </summary>
     public static class AvatarBuilder
     {
@@ -137,6 +171,18 @@ namespace CombatPrep.Net
             new Color(0.21f, 0.23f, 0.19f),   // dark green
         };
 
+        /// <summary>
+        /// The same four, as tints over the soldier's camouflage print: as issued, sun-bleached
+        /// toward coyote, washed out to grey, and a darker woodland.
+        /// </summary>
+        static readonly Color[] CamoTints =
+        {
+            new Color(1.00f, 1.00f, 1.00f),
+            new Color(1.12f, 1.00f, 0.78f),
+            new Color(0.86f, 0.90f, 0.96f),
+            new Color(0.78f, 0.86f, 0.74f),
+        };
+
         static readonly Color Webbing = new(0.12f, 0.13f, 0.11f);
         static readonly Color Balaclava = new(0.10f, 0.10f, 0.10f);
 
@@ -145,12 +191,161 @@ namespace CombatPrep.Net
                                        WeaponShape shape, SkinDefinition skin)
         {
             _owner = owner;
+            var art = ArtLibrary.I;
+            if (art != null && ArtLibrary.Has(art.Soldier))
+            {
+                var soldier = BuildSoldier(parent, slot, displayName, shape, skin, art.Soldier);
+                if (soldier != null) return soldier;
+            }
+            return BuildBlocky(parent, slot, displayName, shape, skin);
+        }
+
+        // Set for the duration of one Build call, so Part() needn't thread it through.
+        static IDamageable _owner;
+
+        // ------------------------------------------------------------------ rigged soldier
+
+        static AvatarView BuildSoldier(Transform parent, int slot, string displayName, WeaponShape shape,
+                                       SkinDefinition skin, ArtLibrary.Character art)
+        {
+            var root = Prim.Empty(parent, "Avatar");
+            var body = Object.Instantiate(art.Prefab, root, false);
+            body.name = "Soldier";
+            var animator = body.GetComponent<Animator>();
+            if (animator == null || animator.avatar == null || !animator.avatar.isHuman)
+            {
+                Debug.LogWarning("[Avatar] Soldier prefab has no Humanoid avatar - using the primitive soldier.");
+                Object.Destroy(root.gameObject);
+                return null;
+            }
+
+            animator.runtimeAnimatorController = art.Controller;
+            animator.applyRootMotion = false;                             // the network moves the body
+            animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;     // hitboxes ride the bones
+
+            // Hitboxes and the armband are sized from the model's rest pose, which is what the
+            // bones still hold now - the Animator hasn't evaluated yet.
+            AddHitboxes(animator, root);
+
+            Color id = Palette[Mathf.Abs(slot) % Palette.Length];
+            TintUniform(body, CamoTints[Mathf.Abs(slot) % CamoTints.Length]);
+            AddArmband(animator, id);
+
+            var view = root.gameObject.AddComponent<SoldierView>();
+            var mount = Prim.Empty(root, "GunMount");
+            var model = WeaponModelBuilder.Build(mount, shape);
+            SkinApplier.Apply(model, skin);
+            view.Init(animator, model, mount, art.HasDeath);
+
+            BuildNameplate(root, 2.1f, view, displayName, id);
+
+            WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
+            return view;
+        }
+
+        /// <summary>
+        /// Hit zones as boxes riding the bones: head (with the helmet), chest and belly, and each
+        /// limb segment. They follow the animation, so a crouched or leaning player is hit
+        /// exactly where they appear.
+        /// </summary>
+        static void AddHitboxes(Animator a, Transform root)
+        {
+            Vector3 up = root.up;
+            Transform B(HumanBodyBones b) => a.GetBoneTransform(b);
+
+            var head = B(HumanBodyBones.Head);
+            var hips = B(HumanBodyBones.Hips);
+            var chest = B(HumanBodyBones.Chest) != null ? B(HumanBodyBones.Chest) : B(HumanBodyBones.Spine);
+            var neck = B(HumanBodyBones.Neck) != null ? B(HumanBodyBones.Neck) : head;
+
+            if (head != null)
+                HitBox(head, head.position - up * 0.04f, head.position + up * 0.27f, 0.25f, 0.29f, Zone.Head, root);
+            if (chest != null && neck != null)
+                HitBox(chest, chest.position, neck.position + up * 0.02f, 0.44f, 0.32f, Zone.Body, root);
+            if (hips != null && chest != null)
+                HitBox(hips, hips.position - up * 0.12f, chest.position, 0.38f, 0.28f, Zone.Body, root);
+
+            Limb(a, HumanBodyBones.LeftUpperArm, HumanBodyBones.LeftLowerArm, 0.13f, root);
+            Limb(a, HumanBodyBones.LeftLowerArm, HumanBodyBones.LeftHand, 0.11f, root);
+            Limb(a, HumanBodyBones.RightUpperArm, HumanBodyBones.RightLowerArm, 0.13f, root);
+            Limb(a, HumanBodyBones.RightLowerArm, HumanBodyBones.RightHand, 0.11f, root);
+            Limb(a, HumanBodyBones.LeftUpperLeg, HumanBodyBones.LeftLowerLeg, 0.18f, root);
+            Limb(a, HumanBodyBones.LeftLowerLeg, HumanBodyBones.LeftFoot, 0.15f, root);
+            Limb(a, HumanBodyBones.RightUpperLeg, HumanBodyBones.RightLowerLeg, 0.18f, root);
+            Limb(a, HumanBodyBones.RightLowerLeg, HumanBodyBones.RightFoot, 0.15f, root);
+        }
+
+        static void Limb(Animator a, HumanBodyBones from, HumanBodyBones to, float thickness, Transform root)
+        {
+            var f = a.GetBoneTransform(from);
+            var t = a.GetBoneTransform(to);
+            if (f != null && t != null) HitBox(f, f.position, t.position, thickness, thickness, Zone.Limb, root);
+        }
+
+        /// <summary>A box from <paramref name="start"/> to <paramref name="end"/>, facing the way the body faces.</summary>
+        static void HitBox(Transform bone, Vector3 start, Vector3 end, float width, float depth, Zone zone, Transform root)
+        {
+            Vector3 along = end - start;
+            float length = along.magnitude;
+            if (length < 0.01f) return;
+
+            // Local Y down the bone, local Z as close to the body's forward as that allows.
+            Vector3 dir = along / length;
+            Vector3 fwd = Vector3.ProjectOnPlane(root.forward, dir);
+            if (fwd.sqrMagnitude < 1e-4f) fwd = Vector3.ProjectOnPlane(root.up, dir);
+
+            var go = new GameObject("Hit" + zone);
+            var t = go.transform;
+            t.SetParent(bone, false);
+            t.SetPositionAndRotation((start + end) * 0.5f, Quaternion.LookRotation(fwd, dir));
+            var box = go.AddComponent<BoxCollider>();
+            box.size = new Vector3(width, length, depth);
+
+            var hz = go.AddComponent<HitZone>();
+            hz.Owner = _owner;
+            hz.Zone = zone;
+        }
+
+        /// <summary>Per-slot camo tint on everything but skin, via a property block so the shared materials stay shared.</summary>
+        static void TintUniform(GameObject body, Color tint)
+        {
+            foreach (var r in body.GetComponentsInChildren<SkinnedMeshRenderer>())
+            {
+                var mats = r.sharedMaterials;
+                for (int i = 0; i < mats.Length; i++)
+                {
+                    if (mats[i] == null || mats[i].name.Contains("skin")) continue;
+                    var block = new MaterialPropertyBlock();
+                    block.SetColor("_BaseColor", tint);
+                    r.SetPropertyBlock(block, i);
+                }
+            }
+        }
+
+        /// <summary>A band of the player's colour round the left upper arm.</summary>
+        static void AddArmband(Animator a, Color id)
+        {
+            var arm = a.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            var elbow = a.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+            if (arm == null || elbow == null) return;
+
+            Vector3 along = elbow.position - arm.position;
+            var band = Prim.Pillar(arm, "Armband", Vector3.zero, 0.135f, 0.055f, id, 0f, 0.4f);
+            band.SetPositionAndRotation(arm.position + along * 0.32f,
+                                        Quaternion.FromToRotation(Vector3.up, along.normalized));
+        }
+
+        // ------------------------------------------------------------------ primitive soldier
+
+        static AvatarView BuildBlocky(Transform parent, int slot, string displayName, WeaponShape shape,
+                                      SkinDefinition skin)
+        {
             Color id = Palette[Mathf.Abs(slot) % Palette.Length];
             Color uniform = Uniforms[Mathf.Abs(slot) % Uniforms.Length];
             Color trousers = uniform * 0.82f; trousers.a = 1f;
 
             var root = Prim.Empty(parent, "Avatar");
-            var view = root.gameObject.AddComponent<AvatarView>();
+            var view = root.gameObject.AddComponent<BlockyAvatarView>();
 
             // Hitzones are the Part() boxes below and are unchanged by the kit; everything
             // added with a bare Prim.Box is visual only, with no collider to catch a bullet.
@@ -161,7 +356,7 @@ namespace CombatPrep.Net
             view.HipR = Leg(root, "R", 0.11f, trousers, out view.KneeR);
 
             // --- upper body: everything from the hips up, lowered as one when crouching ---
-            var upper = Prim.Empty(root, "Upper", new Vector3(0f, AvatarView.HipHeight, 0f));
+            var upper = Prim.Empty(root, "Upper", new Vector3(0f, BlockyAvatarView.HipHeight, 0f));
             view.Upper = upper;
             Part(upper, "Torso", new Vector3(0f, 0.31f, 0f), new Vector3(0.50f, 0.62f, 0.28f), uniform, Zone.Body);
 
@@ -194,19 +389,16 @@ namespace CombatPrep.Net
             SkinApplier.Apply(model, skin);
             view.Weapon = model;
 
-            BuildNameplate(upper, 2.15f - AvatarView.HipHeight, view, displayName, id);
+            BuildNameplate(upper, 2.15f - BlockyAvatarView.HipHeight, view, displayName, id);
 
             WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
             return view;
         }
 
-        // Set for the duration of one Build call, so Part() needn't thread it through.
-        static IDamageable _owner;
-
         /// <summary>One leg: hip joint, thigh, knee joint, shin and boot. Both segments are hitboxes.</summary>
         static Transform Leg(Transform root, string side, float x, Color trousers, out Transform knee)
         {
-            var hip = Prim.Empty(root, "Hip" + side, new Vector3(x, AvatarView.HipHeight, 0f));
+            var hip = Prim.Empty(root, "Hip" + side, new Vector3(x, BlockyAvatarView.HipHeight, 0f));
             Part(hip, "Thigh" + side, new Vector3(0f, -0.21f, 0f), new Vector3(0.18f, 0.42f, 0.20f), trousers, Zone.Limb);
             knee = Prim.Empty(hip, "Knee" + side, new Vector3(0f, -0.42f, 0f));
             Part(knee, "Shin" + side, new Vector3(0f, -0.19f, 0f), new Vector3(0.17f, 0.38f, 0.19f), trousers, Zone.Limb);

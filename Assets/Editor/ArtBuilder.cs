@@ -9,7 +9,8 @@ namespace CombatPrep.EditorTools
     /// <summary>
     /// Import settings for everything under Assets/Art, applied the moment a file lands:
     /// normal maps flagged as normal maps, data maps kept linear, the HDRI made a cubemap,
-    /// models imported without their own materials and with Y up.
+    /// models imported without their own materials and with Y up - and Mixamo animations as
+    /// Humanoid clips (see SoldierBuilder).
     /// </summary>
     public class ArtImportSettings : AssetPostprocessor
     {
@@ -20,25 +21,51 @@ namespace CombatPrep.EditorTools
 
         void OnPreprocessModel()
         {
-            if (ArtBuilder.IsArt(assetPath)) ArtBuilder.Configure((ModelImporter)assetImporter);
+            if (!ArtBuilder.IsArt(assetPath)) return;
+            if (SoldierBuilder.IsMixamo(assetPath)) SoldierBuilder.Configure((ModelImporter)assetImporter);
+            else ArtBuilder.Configure((ModelImporter)assetImporter);
+        }
+
+        void OnPreprocessAnimation()
+        {
+            if (SoldierBuilder.IsMixamo(assetPath)) SoldierBuilder.ConfigureClips((ModelImporter)assetImporter);
+        }
+
+        /// <summary>New, changed or removed source art: check whether the library needs a rebuild.</summary>
+        static void OnPostprocessAllAssets(string[] imported, string[] deleted, string[] moved, string[] movedFrom)
+        {
+            foreach (var list in new[] { imported, deleted, moved, movedFrom })
+            foreach (var path in list)
+            {
+                if (!ArtBuilder.IsSource(path)) continue;
+                ArtAutoBuild.Schedule();
+                return;
+            }
         }
     }
 
     /// <summary>
-    /// Rebuilds the art library by itself after any script reload or return to edit mode,
-    /// if the source files have changed since it was last built - so dropping new files into
-    /// Assets/Art needs no menu click. Never runs in play mode.
+    /// Rebuilds the art library by itself whenever source files in Assets/Art are added,
+    /// changed or removed, and after any script reload or return to edit mode - so dropping
+    /// new files in needs no menu click. Only if something actually changed since the last
+    /// build, and never in play mode.
     /// </summary>
     [InitializeOnLoad]
     static class ArtAutoBuild
     {
         static ArtAutoBuild()
         {
-            EditorApplication.delayCall += Check;
+            Schedule();
             EditorApplication.playModeStateChanged += s =>
             {
-                if (s == PlayModeStateChange.EnteredEditMode) EditorApplication.delayCall += Check;
+                if (s == PlayModeStateChange.EnteredEditMode) Schedule();
             };
+        }
+
+        public static void Schedule()
+        {
+            EditorApplication.delayCall -= Check;
+            EditorApplication.delayCall += Check;
         }
 
         static void Check()
@@ -74,10 +101,15 @@ namespace CombatPrep.EditorTools
         const string SkyPath = Root + "/Sky/overcast_soil_puresky_2k.hdr";
 
         /// <summary>Bump to force every machine to rebuild after changing this file.</summary>
-        const int Version = 3;
+        const int Version = 5;
         const int MaskSize = 512;
 
         public static bool IsArt(string path) => path.StartsWith(Root + "/");
+
+        /// <summary>A file the library is built *from*, as opposed to one the builder writes.</summary>
+        public static bool IsSource(string path) =>
+            IsArt(path) && !path.EndsWith(".meta") && !path.Contains("/Generated/")
+            && !path.Contains("/Materials/") && !path.Contains("/Resources/");
 
         // ---------------------------------------------------------------- specs
 
@@ -202,10 +234,17 @@ namespace CombatPrep.EditorTools
         /// <summary>
         /// Files imported before the post-processor existed keep their old settings until
         /// reimported, so re-apply them explicitly and reimport only what actually changed.
+        /// A file Unity hasn't seen yet (just copied in) is imported now, so the build below
+        /// never runs ahead of its own sources; the post-processor configures it on the way in.
         /// </summary>
         static void EnsureSettings(string path)
         {
             var imp = AssetImporter.GetAtPath(path);
+            if (imp == null)
+            {
+                AssetDatabase.ImportAsset(path);
+                return;
+            }
             if (imp is TextureImporter ti)
             {
                 string before = Signature(ti);
@@ -215,7 +254,8 @@ namespace CombatPrep.EditorTools
             else if (imp is ModelImporter mi)
             {
                 string before = Signature(mi);
-                Configure(mi);
+                if (SoldierBuilder.IsMixamo(path)) SoldierBuilder.Configure(mi);
+                else Configure(mi);
                 if (Signature(mi) != before) mi.SaveAndReimport();
             }
         }
@@ -240,8 +280,7 @@ namespace CombatPrep.EditorTools
             foreach (var f in files)
             {
                 var p = f.Replace('\\', '/');
-                if (p.EndsWith(".meta") || p.Contains("/Generated/") || p.Contains("/Materials/")
-                    || p.Contains("/Resources/")) continue;
+                if (!IsSource(p)) continue;
                 sb.Append(Path.GetFileName(p)).Append(':').Append(new FileInfo(f).Length).Append(';');
             }
             return sb.ToString();
@@ -270,9 +309,7 @@ namespace CombatPrep.EditorTools
                 foreach (var f in Directory.GetFiles(Root, "*", SearchOption.AllDirectories))
                 {
                     var p = f.Replace('\\', '/');
-                    if (p.EndsWith(".meta") || p.Contains("/Generated/") || p.Contains("/Materials/")
-                        || p.Contains("/Resources/")) continue;
-                    EnsureSettings(p);
+                    if (IsSource(p)) EnsureSettings(p);
                 }
             }
             finally
@@ -332,12 +369,18 @@ namespace CombatPrep.EditorTools
             lib.Sky = AssetDatabase.LoadAssetAtPath<Texture>(SkyPath);
             lib.SkyExposure = 0.12f;
 
+            // 5. The online soldier, and its animations if the Mixamo clips are in.
+            lib.Soldier = SoldierBuilder.Build();
+
             lib.SourceStamp = ComputeStamp();
             EditorUtility.SetDirty(lib);
             AssetDatabase.SaveAssets();
 
+            string soldier = lib.Soldier == null || lib.Soldier.Prefab == null ? "missing"
+                           : lib.Soldier.Controller == null ? "model only (no animations yet)"
+                           : "animated";
             Debug.Log($"<b>CombatPrep</b>: art library built - {ok}/{Surfaces.Length} surfaces, " +
-                      $"{props}/{Props.Length} props, sky {(lib.Sky != null ? "yes" : "missing")}.");
+                      $"{props}/{Props.Length} props, sky {(lib.Sky != null ? "yes" : "missing")}, soldier {soldier}.");
         }
 
         static ArtLibrary.Surface BuildSurface(SurfaceSpec s,

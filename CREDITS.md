@@ -30,6 +30,24 @@ here anyway.
 The files are in `Assets/Art/`. The materials in `Assets/Art/Materials` and the packed masks in
 `Assets/Art/Generated` are built from them by `Assets/Editor/ArtBuilder.cs`.
 
+## Soldier — CC BY 4.0
+
+The soldier other players see online is
+[Russian Soldier](https://sketchfab.com/3d-models/russian-soldier-e9aa211b67264dc086af1d2f4d4e3d84)
+by [doctortex](https://sketchfab.com/doctortex), licensed under
+[CC BY 4.0](http://creativecommons.org/licenses/by/4.0/).
+
+Changes made: converted to metres and to a metal/roughness material, joints renamed, parts merged
+by material, and textures reduced to 1024 px. The result is in `Assets/Art/Characters/Soldier`;
+`Assets/Editor/SoldierBuilder.cs` turns it into the prefab and Humanoid avatar in
+`Assets/Art/Generated/Soldier`.
+
+## Mixamo animations — not included
+
+The soldier's walk, run, crouch, fire and death animations come from [Mixamo](https://www.mixamo.com)
+(Adobe). They're free to use in a game, but Mixamo's terms don't allow sharing the files
+themselves, so they're kept out of this repository. See the README for how to download them.
+
 ## Made in code
 
 Everything else is generated when the game runs: the weapons, the paper targets, the rain,

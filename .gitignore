@@ -71,6 +71,11 @@ D3D12/
 /Assets/_Recovery/
 /Assets/_Recovery.meta
 
+# Mixamo animations may be used in the game but not redistributed as files, so they - and
+# the Animator Controller built from them - stay local. See README for how to get them.
+/Assets/Art/Characters/Mixamo/
+/Assets/Art/Characters/Mixamo.meta
+
 # ---------------------------------------------------------------------------
 # OS cruft
 # ---------------------------------------------------------------------------

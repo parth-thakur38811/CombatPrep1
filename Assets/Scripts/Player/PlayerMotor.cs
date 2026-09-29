@@ -6,11 +6,16 @@ namespace CombatPrep.Player
     [RequireComponent(typeof(CharacterController))]
     public class PlayerMotor : MonoBehaviour
     {
+        /// <summary>Default speeds - also what the online soldier's animations are timed to
+        /// (Editor/SoldierBuilder), so their feet keep pace with how fast players really move.</summary>
+        public const float DefaultWalkSpeed = 4.2f, DefaultSprintSpeed = 7.0f,
+                           DefaultCrouchSpeed = 2.0f, DefaultAdsSpeed = 2.8f;
+
         [Header("Speeds (m/s)")]
-        public float WalkSpeed = 4.2f;
-        public float SprintSpeed = 7.0f;
-        public float CrouchSpeed = 2.0f;
-        public float AdsSpeed = 2.8f;
+        public float WalkSpeed = DefaultWalkSpeed;
+        public float SprintSpeed = DefaultSprintSpeed;
+        public float CrouchSpeed = DefaultCrouchSpeed;
+        public float AdsSpeed = DefaultAdsSpeed;
 
         [Header("Feel")]
         public float GroundAccel = 14f;

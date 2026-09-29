@@ -9,8 +9,10 @@ contains a single empty object — everything else is built from scratch when yo
 
 The latest version turns the range into a rain-soaked war zone at dusk. For that I relaxed the
 rule for surfaces: the ground, concrete, containers, sandbags, the sky and a few props now use
-free, public-domain textures and models from [Poly Haven](https://polyhaven.com) (listed in
-[CREDITS.md](CREDITS.md)). The guns, sounds, rain, fire and lightning are still made in code.
+free, public-domain textures and models from [Poly Haven](https://polyhaven.com), and the
+soldiers you fight online are a rigged model shared under CC BY, animated with Mixamo (all
+listed in [CREDITS.md](CREDITS.md)). The guns, sounds, rain, fire and lightning are still made
+in code.
 
 > **How this was made:** I planned the project, decided what to build, played each version
 > and worked out what needed fixing. The code itself was written with the help of
@@ -67,8 +69,10 @@ game.
 **An honest crosshair.** The crosshair opens up by exactly as much as your bullets actually
 spread. It isn't a decoration; it's showing you the real number.
 
-**Sights that work.** Each scope is a hollow ring you genuinely look through, with a glowing
-reticle sitting on the centre line, rather than a picture pasted over the screen.
+**Sights that work.** Each scope is a hollow ring you genuinely look through, rather than a
+picture pasted over the screen. The red dot and the scope's crosshair are drawn on the sight's
+glass, pinned to the exact point your bullets go - so they stay on target while the gun kicks -
+and stay one pixel thin at any zoom.
 
 ![Looking through the marksman rifle scope](docs/scope-dmr.png)
 
@@ -87,6 +91,20 @@ You'll need **Unity 6000.4.8f1** or newer.
 | `R` | Reload |
 | `Shift` / `Ctrl` / `Space` | Sprint / crouch / jump |
 | `Esc` | Back to weapon selection |
+
+### Soldier animations (online play)
+
+Other players appear as an animated soldier. The animations come from Mixamo, whose terms don't
+allow sharing the files, so they aren't in this repository - without them, online players are
+drawn as simple block soldiers instead. To add them:
+
+1. Sign in at [mixamo.com](https://www.mixamo.com) (free Adobe account).
+2. Download rifle animations for idle, walking and running (forwards, backwards and to the
+   sides), crouching (still and walking), firing and a death. Choose **FBX for Unity** and
+   **Without Skin**, and leave **In Place** unticked - the game uses how far each clip travels
+   to match its pace to the players' real speed.
+3. Put the files in `Assets/Art/Characters/Mixamo/`. Unity sorts them by their names and builds
+   the soldier's animation controller by itself.
 
 ## How the code is organised
 

@@ -89,6 +89,7 @@ namespace CombatPrep.Weapons
             d.MoveSpreadScale = 1.7f;              // forgiving on the move, by design
             d.Crosshair = CrosshairStyle.Dot;      // a wide bloom reads better as one point
             d.HipFov = 80f; d.AdsFov = 60f; d.AdsTime = 0.12f;
+            d.DrawTime = 0.34f;
 
             d.ShotGain = 0.72f; d.ShotDecay = 34f; d.ShotBodyHz = 190f; d.ShotCrack = 0.62f;
             d.KickBack = 0.030f; d.KickPitch = 3.2f;
@@ -130,6 +131,7 @@ namespace CombatPrep.Weapons
             d.BaseSpread = 0.05f; d.SpreadPerShot = 0.50f; d.MaxSpread = 3.5f;
             d.SpreadDecay = 3.2f; d.AdsSpreadScale = 0.10f;
             d.HipFov = 78f; d.AdsFov = 22f; d.AdsTime = 0.26f;
+            d.DrawTime = 0.5f;
             d.AdsSensScale = 0.45f;               // magnified optics need a much slower turn
             d.Crosshair = CrosshairStyle.None;    // no hip reticle: use the scope
 
@@ -172,6 +174,7 @@ namespace CombatPrep.Weapons
             d.BaseSpread = 0.28f; d.SpreadPerShot = 0.38f; d.MaxSpread = 4.0f;
             d.SpreadDecay = 6.5f;
             d.HipFov = 80f; d.AdsFov = 62f; d.AdsTime = 0.12f;
+            d.DrawTime = 0.26f;                   // a sidearm is out in a moment
 
             d.DamageFalloffStart = 22f; d.DamageFalloffEnd = 70f; d.MinDamageFraction = 0.45f;
             d.ShotGain = 0.70f; d.ShotDecay = 32f; d.ShotBodyHz = 175f; d.ShotCrack = 0.60f;
@@ -215,6 +218,7 @@ namespace CombatPrep.Weapons
             d.BaseSpread = 2.30f; d.SpreadPerShot = 0.60f; d.MaxSpread = 6.0f;
             d.AdsSpreadScale = 0.62f; d.MoveSpreadScale = 1.2f;
             d.HipFov = 80f; d.AdsFov = 66f; d.AdsTime = 0.18f;
+            d.DrawTime = 0.45f;
 
             d.DamageFalloffStart = 9f; d.DamageFalloffEnd = 34f; d.MinDamageFraction = 0.2f;
             d.ShotGain = 1.0f; d.ShotDecay = 14f; d.ShotBodyHz = 85f; d.ShotCrack = 0.9f; d.ShotTail = 0.40f;

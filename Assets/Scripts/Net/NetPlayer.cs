@@ -21,13 +21,14 @@ namespace CombatPrep.Net
     ///
     /// The same object is built two different ways depending on who is looking at it:
     ///   - on its owner's machine it becomes the full first-person rig (camera, controller,
-    ///     weapon, grenades) via the same PlayerRigBuilder Practice mode uses;
+    ///     all five guns, grenades) via the same PlayerRigBuilder Practice mode uses;
     ///   - on everyone else's machine it becomes a third-person avatar with no input at all.
     ///
     /// Combat follows "favour the shooter": your client decides what your bullets hit, but
-    /// only the server changes health. Each trigger pull becomes one ShotRpc carrying the
-    /// pellet end points (so everyone else sees and hears the shot) and any player hits
-    /// (which the server validates and turns into damage using its own numbers).
+    /// only the server changes health. Each trigger pull becomes one ShotRpc carrying which
+    /// gun fired, the pellet end points (so everyone else sees and hears the shot) and any
+    /// player hits (which the server validates and turns into damage using that gun's numbers).
+    /// The gun in hand is also the WeaponId variable, so other players see the switch.
     ///
     /// Grenades are the server's alone: a throw is sent to it, it flies an unseen copy of
     /// the grenade and, when the fuse runs out, damages every player the blast can see -
@@ -53,6 +54,7 @@ namespace CombatPrep.Net
         public readonly NetworkVariable<FixedString32Bytes> DisplayName = new(
             default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
+        /// <summary>The gun in hand (WeaponLibrary index) - the menu's pick at first, then keys 1-5.</summary>
         public readonly NetworkVariable<int> WeaponId = new(
             0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
@@ -111,7 +113,7 @@ namespace CombatPrep.Net
         {
             All.Add(this);
             gameObject.name = $"NetPlayer_{OwnerClientId}";
-            DisplayName.OnValueChanged += OnNameChanged;
+            WeaponId.OnValueChanged += OnWeaponChanged;
             Health.OnValueChanged += OnHealthChanged;
 
             if (IsOwner)
@@ -125,12 +127,16 @@ namespace CombatPrep.Net
 
         public override void OnNetworkDespawn()
         {
-            DisplayName.OnValueChanged -= OnNameChanged;
+            WeaponId.OnValueChanged -= OnWeaponChanged;
             Health.OnValueChanged -= OnHealthChanged;
-            if (_hasRig && _rig.Weapon != null)
+            if (_hasRig && _rig.Loadout != null)
             {
-                _rig.Weapon.ShotStarting -= OnShotStarting;
-                _rig.Weapon.ShotFired -= OnShotFired;
+                _rig.Loadout.Switched -= OnWeaponSwitched;
+                foreach (var w in _rig.Loadout.Weapons)
+                {
+                    w.ShotStarting -= OnShotStarting;
+                    w.ShotFired -= OnShotFired;
+                }
             }
             if (_hasRig && _rig.Thrower != null) _rig.Thrower.Thrown -= OnGrenadeThrown;
             if (RemoteHitProxy.Collector == this) RemoteHitProxy.Collector = null;
@@ -139,9 +145,10 @@ namespace CombatPrep.Net
             if (Local == this) Local = null;
         }
 
-        void OnNameChanged(FixedString32Bytes _, FixedString32Bytes now)
+        /// <summary>Everyone else: the gun in this player's hands changes to match.</summary>
+        void OnWeaponChanged(int _, int now)
         {
-            if (_avatar != null) _avatar.SetName(now.ToString());
+            if (_avatar != null) _avatar.ShowWeapon(now);
         }
 
         void OnHealthChanged(float before, float now)
@@ -204,8 +211,12 @@ namespace CombatPrep.Net
             _rig = PlayerRigBuilder.Build(gameObject, Weapon, Skin);
             _hasRig = true;
 
-            _rig.Weapon.ShotStarting += OnShotStarting;
-            _rig.Weapon.ShotFired += OnShotFired;
+            foreach (var w in _rig.Loadout.Weapons)
+            {
+                w.ShotStarting += OnShotStarting;
+                w.ShotFired += OnShotFired;
+            }
+            _rig.Loadout.Switched += OnWeaponSwitched;
 
             _rig.Thrower.Networked = true;
             _rig.Thrower.Thrown += OnGrenadeThrown;
@@ -220,7 +231,7 @@ namespace CombatPrep.Net
         {
             var proxy = gameObject.AddComponent<RemoteHitProxy>();
             proxy.Player = this;
-            _avatar = AvatarBuilder.Build(transform, proxy, (int)OwnerClientId, PlayerName, Weapon.Shape, Skin);
+            _avatar = AvatarBuilder.Build(transform, proxy, (int)OwnerClientId, WeaponId.Value, Skin);
             _avatar.SetVisible(IsAlive);
         }
 
@@ -255,24 +266,32 @@ namespace CombatPrep.Net
         void OnShotFired(Vector3 muzzle, Vector3[] ends)
         {
             RemoteHitProxy.Collector = null;
-            ShotRpc(ends, _hitVictims.ToArray(), _hitZones.ToArray());
+            // The shot names its gun rather than leaving it to WeaponId, which travels
+            // separately and could arrive after a shot fired just after a switch.
+            ShotRpc((byte)_rig.Loadout.Index, ends, _hitVictims.ToArray(), _hitZones.ToArray());
         }
+
+        /// <summary>Owner: a different gun is in hand - everyone else's copy of us holds it too.</summary>
+        void OnWeaponSwitched(int index) => WeaponId.Value = index;
 
         // ----------------------------------------------------------- shooting (server)
 
         [Rpc(SendTo.Server)]
-        void ShotRpc(Vector3[] ends, ulong[] victims, byte[] zones, RpcParams rpcParams = default)
+        void ShotRpc(byte weapon, Vector3[] ends, ulong[] victims, byte[] zones, RpcParams rpcParams = default)
         {
             // Any client may invoke an RPC on any object, so check the sender really owns
             // this gun - otherwise one player could fire "as" another.
             if (rpcParams.Receive.SenderClientId != OwnerClientId) return;
             if (!IsAlive || MatchManager.I == null || !MatchManager.I.IsPlaying) return;
+            if (weapon >= WeaponLibrary.All.Length) return;
 
-            var def = Weapon.Def;
+            // Every player carries every gun, so any of them may fire; its own rate and
+            // damage apply.
+            var def = WeaponLibrary.All[weapon].Def;
             if (!SpendShot(def)) return;
 
             // Everyone but the shooter sees and hears it.
-            ShotVisualRpc(ends);
+            ShotVisualRpc(weapon, ends);
 
             int n = Mathf.Min(Mathf.Min(victims.Length, zones.Length), Mathf.Max(1, def.PelletsPerShot));
             for (int i = 0; i < n; i++)
@@ -447,13 +466,16 @@ namespace CombatPrep.Net
         // --------------------------------------------------------- everyone's view
 
         [Rpc(SendTo.NotOwner)]
-        void ShotVisualRpc(Vector3[] ends)
+        void ShotVisualRpc(byte weapon, Vector3[] ends)
         {
-            if (_avatar == null) return;
+            if (_avatar == null || weapon >= WeaponLibrary.All.Length) return;
 
+            // The gun that fired is the one they're holding, even if the switch itself is
+            // still on its way.
+            _avatar.ShowWeapon(weapon);
             _avatar.OnShot();
             Vector3 muzzle = _avatar.MuzzlePosition;
-            var def = Weapon.Def;
+            var def = WeaponLibrary.All[weapon].Def;
 
             // Gunshots carry across the whole arena, not the 60 m used for impact sounds.
             GameAudio.I.PlayShotAt(def, muzzle, maxDistance: 220f);
@@ -504,7 +526,7 @@ namespace CombatPrep.Net
                 if (cc != null) cc.enabled = true;
 
                 _rig.Look.ResetView(rot.eulerAngles.y);
-                _rig.Weapon.ResetAmmo();
+                _rig.Loadout.ResetAmmo();
                 _rig.Thrower.Refill();
                 SetControls(true);
                 Hud.I.HideDeath();
@@ -520,7 +542,7 @@ namespace CombatPrep.Net
         {
             _rig.Motor.enabled = on;
             _rig.Look.enabled = on;
-            _rig.Weapon.Active = on;     // disabling also cancels any aim-down-sights
+            _rig.Loadout.SetControls(on);    // disabling also cancels any aim-down-sights
             _rig.Thrower.enabled = on;
         }
 

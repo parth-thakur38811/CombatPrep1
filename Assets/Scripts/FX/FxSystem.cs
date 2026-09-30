@@ -24,7 +24,6 @@ namespace CombatPrep.FX
         public int ImpactPool = 24;
         public int RemoteFlashPool = 8;
 
-        FlashFx _muzzle;
         readonly List<TracerFx> _tracers = new();
         readonly List<FlashFx> _impacts = new();
         readonly List<FlashFx> _remoteFlashes = new();
@@ -45,21 +44,16 @@ namespace CombatPrep.FX
 
         // ------------------------------------------------------------------ muzzle flash
 
-        /// <summary>Your own gun's flash, riding its muzzle.</summary>
-        public void AttachMuzzle(Transform muzzle) => _muzzle = AttachRemoteMuzzle(muzzle);
-
-        /// <summary>A flash for any gun's muzzle - another player's gun gets its own.</summary>
-        public FlashFx AttachRemoteMuzzle(Transform muzzle)
+        /// <summary>
+        /// A flash riding a gun's muzzle, for that gun to play when it fires. Every gun gets its
+        /// own - each of yours, and each one another player is seen holding.
+        /// </summary>
+        public FlashFx AttachMuzzle(Transform muzzle)
         {
             var go = Spawn(Lib?.MuzzleFlash, FxRecipes.MuzzleFlash, muzzle);
             go.transform.localPosition = Vector3.zero;
             go.transform.localRotation = Quaternion.identity;
             return go.GetComponent<FlashFx>();
-        }
-
-        public void MuzzleFlash()
-        {
-            if (_muzzle != null) _muzzle.Play();
         }
 
         /// <summary>A flash at an arbitrary point, for a gun with none attached.</summary>

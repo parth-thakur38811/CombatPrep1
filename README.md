@@ -43,13 +43,14 @@ It turns out you can get quite far:
   script when the game starts.
 - **The storm** is code as well: rain that stops at roofs and splashes where it lands,
   lightning that throws shadows across the arena, thunder that arrives a few seconds later,
-  and fires and smoke burning on the horizon.
+  and shelled buildings in the arena still burning, their smoke leaning with the wind.
 
 ## What's in it
 
 Five weapons — an assault rifle, submachine gun, marksman rifle, pistol and shotgun — each
-with six colour schemes you choose before playing. The patterns are generated too, so the
-camouflage and stripes are drawn by code rather than painted by hand.
+with six colour schemes you choose before playing. You carry all five and switch between them
+with the number keys; the one you pick is the one you start with. The patterns are generated
+too, so the camouflage and stripes are drawn by code rather than painted by hand.
 
 ![Choosing a weapon and finish](docs/loadout-carbine.png)
 
@@ -92,6 +93,8 @@ You'll need **Unity 6000.4.8f1** or newer.
 | `WASD` / Mouse | Move / look |
 | Left click / Right click | Fire / aim |
 | `R` | Reload |
+| `1`–`5` | Switch weapon |
+| `G` | Grenade — hold left click to aim the throw, release to throw |
 | `Shift` / `Ctrl` / `Space` | Sprint / crouch / jump |
 | `Esc` | Back to weapon selection |
 

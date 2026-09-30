@@ -31,7 +31,7 @@ the folder above it is only a container.
 | Startup, lighting, post-processing | `Scripts/Core/Bootstrap.cs` |
 | Arena (seeded, deterministic) | `Scripts/Core/RangeBuilder*.cs` - `.Warzone` (ruins, craters, puddles, fires), `.Online` (extra cover shown only online) |
 | First-person rig | `Scripts/Core/PlayerRigBuilder.cs`, `Scripts/Player/*` |
-| Guns | `Scripts/Weapons/*` - `WeaponLibrary` (the five guns), `WeaponModelBuilder` (primitive models, optics), `Weapon` (firing), `WeaponAnimator` (ADS pose, visual kick) |
+| Guns | `Scripts/Weapons/*` - `WeaponLibrary` (the five guns), `WeaponLoadout` (all five carried, keys 1-5), `WeaponModelBuilder` (primitive models, optics), `Weapon` (firing), `WeaponAnimator` (ADS pose, visual kick, draw) |
 | Sights | `Assets/Shaders/Resources/Reticle.shader` - screen-anchored reticle on the sight glass |
 | Grenades | `Scripts/Weapons/Grenade.cs`, `GrenadeThrower.cs` |
 | Effects | `Scripts/FX/FxRecipes.cs` (how each effect is built), `FxSystem`, `FlashFx`, `TracerFx`, `PuddleFx`, `FireFx`, `Weather` (rain), `Storm` (sky, lightning, thunder) |
@@ -68,9 +68,11 @@ the folder above it is only a container.
 
 - Owner-authoritative movement (NetworkTransform); look pitch and crouch are owner-written
   NetworkVariables.
-- "Favour the shooter": the shooter's client traces bullets; `ShotRpc` sends pellet end
-  points and hits; the server validates (ownership, fire-rate bucket, range) and computes the
-  damage itself.
+- "Favour the shooter": the shooter's client traces bullets; `ShotRpc` sends which gun fired,
+  pellet end points and hits; the server validates (ownership, fire-rate bucket, range) and
+  computes the damage itself from that gun.
+- The gun in hand is the owner-written `WeaponId`; remote bodies build each gun the first time
+  it's shown and keep it. Shots name their gun too, since the variable can arrive after them.
 - Grenades are server-authoritative: the owner shows its grenade at once and sends
   `ThrowGrenadeRpc`; the server validates (count per life, cooldown, origin, speed), flies an
   unseen Authority copy, and at the fuse damages every player with a clear line from the blast
@@ -80,7 +82,8 @@ the folder above it is only a container.
 - Remote bodies: the rigged soldier when `ArtLibrary.Soldier` has a controller, otherwise
   the primitive soldier. The soldier's Humanoid avatar is built at runtime
   (`Core/HumanoidRig`), because an avatar saved from an editor script dropped out of player
-  builds. Hitboxes ride the bones; the gun is placed between the hands each frame.
+  builds. Hitboxes ride the bones; the gun is placed between the hands each frame. No names
+  over heads - they gave players away from across the map.
 
 ## Checking work
 
@@ -100,6 +103,8 @@ the folder above it is only a container.
   `ParticleKit.Hash01/Seed` for variety, and light fires after the seeded pass.
 - MonoBehaviours that live on prefabs need their own file named after the class.
 - `Tex` textures stay readable (`Apply(true)`), which the FX builder relies on to save PNGs.
+- The first-person rig holds all five guns but only the one in hand is active. Anything that
+  follows the gun in hand (HUD, zoom, aim sensitivity) belongs in `Weapon.Draw`, not `Init`.
 - Pushing needs the owner's GitHub sign-in (Git Credential Manager); if a push fails, hand
   them `git push origin main`.
 
@@ -124,3 +129,12 @@ the folder above it is only a container.
 - **Throw animations:** remote soldiers throw grenades standing, crouched or on the run
   (Mixamo), starting just before the release so the grenade leaves on cue; the gun is put away
   until the arm comes back down.
+- **Weapon switching:** every player carries all five guns; keys 1-5 switch (the menu pick is
+  the starting gun). Each gun keeps its own ammo, a switch drops a reload in progress, and the
+  new gun has a short draw before it can fire. A key with a grenade out puts it back. The HUD
+  lists the guns against their keys for a moment on spawn and on each switch.
+- **No nameplates:** names no longer float over other players' heads.
+- **Ruins inside the arena:** four walk-in shelled buildings in mirrored pairs - the flank pair
+  ablaze under smoke columns, the far-corner pair smouldering - with breaches, windows and a
+  surviving upper floor, solid to players, bullets and blasts. Their ground is claimed before
+  the clutter is scattered. The skyline ring moved out to 100-160 m and no longer burns.

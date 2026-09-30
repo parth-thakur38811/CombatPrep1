@@ -362,8 +362,10 @@ namespace CombatPrep.Core
             Occupied.Clear();
             Occupy(new Vector2(0f, -1.5f), 8f);    // firing point, benches and canopy posts
 
-            // Spawn points are claimed first, so no container or sandbag can land on one.
+            // Spawn points are claimed first, so no container or sandbag can land on one -
+            // and so are the ruined buildings (RangeBuilder.Warzone.cs), built later.
             foreach (var s in SpawnSpots) Occupy(s, 2.5f);
+            ClaimArenaRuins();
 
             // Barricades near the firing line, for cover-shooting practice.
             Barricade(c, new Vector3(-6.5f, 0f, 8f), 0f);

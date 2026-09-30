@@ -10,10 +10,10 @@ namespace CombatPrep.Net
     /// movement from the synced position, the crouch flag, look pitch, shots and deaths.
     ///
     /// Two things are done by hand after the Animator has posed the body each frame. The spine
-    /// bends with the owner's look pitch, so you can see where they aim. And the gun - built
-    /// from their weapon and skin as everywhere else - is placed in their hands rather than
-    /// parented to one: grip in the right hand, barrel pointing at the left. Any rifle animation
-    /// then holds any of the five guns, whatever its length.
+    /// bends with the owner's look pitch, so you can see where they aim. And the gun - whichever
+    /// of the five they have out, built from their weapon and skin as everywhere else - is
+    /// placed in their hands rather than parented to one: grip in the right hand, barrel
+    /// pointing at the left. Any rifle animation then holds any of the guns, whatever its length.
     /// </summary>
     public class SoldierView : AvatarView
     {
@@ -40,9 +40,8 @@ namespace CombatPrep.Net
         int _throwLayer = -1;
         ArtLibrary.AnimMove _throwStand, _throwCrouch, _throwRun;
         float _throwUntil = -1f;
-        Transform _spine, _chest, _upperChest, _head;
+        Transform _spine, _chest, _upperChest;
         Transform _handR, _handL, _fingersR, _fingersL;
-        Transform _gunMount;
         Vector3 _gripLocal;
         Quaternion _gunAlign;
 
@@ -53,7 +52,7 @@ namespace CombatPrep.Net
         bool _dead;
         float _hideAt = -1f;
 
-        public void Init(Animator animator, WeaponModel gun, Transform gunMount, ArtLibrary.Character art)
+        public void Init(Animator animator, ArtLibrary.Character art)
         {
             _animator = animator;
             _hasDeath = art.HasDeath;
@@ -65,19 +64,22 @@ namespace CombatPrep.Net
             _spine = animator.GetBoneTransform(HumanBodyBones.Spine);
             _chest = animator.GetBoneTransform(HumanBodyBones.Chest);
             _upperChest = animator.GetBoneTransform(HumanBodyBones.UpperChest);
-            _head = animator.GetBoneTransform(HumanBodyBones.Head);
             _handR = animator.GetBoneTransform(HumanBodyBones.RightHand);
             _handL = animator.GetBoneTransform(HumanBodyBones.LeftHand);
             _fingersR = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
             _fingersL = animator.GetBoneTransform(HumanBodyBones.LeftMiddleProximal);
+        }
 
-            Weapon = gun;
-            _gunMount = gunMount;
-            _gripLocal = gun.Grip.localPosition;
+        protected override void OnWeaponShown()
+        {
+            _gripLocal = Weapon.Grip.localPosition;
             // Turns the gun so its grip-to-support line runs down +Z; PlaceGun then points that
             // line from one hand to the other.
             _gunAlign = Quaternion.Inverse(Quaternion.LookRotation(
-                gun.Support.localPosition - gun.Grip.localPosition, Vector3.up));
+                Weapon.Support.localPosition - Weapon.Grip.localPosition, Vector3.up));
+
+            // Switched mid-throw: this gun stays away until the arm comes down too.
+            if (_throwUntil > 0f) ShowGun(false);
         }
 
         public override void OnShot()
@@ -195,9 +197,6 @@ namespace CombatPrep.Net
             }
 
             PlaceGun();
-
-            if (Nameplate != null && _head != null)
-                Nameplate.position = _head.position + Vector3.up * 0.55f;
         }
 
         static void Bend(Transform bone, Vector3 axis, float degrees)
@@ -208,14 +207,14 @@ namespace CombatPrep.Net
         /// <summary>Grip in the right hand, barrel toward the left hand, kept upright.</summary>
         void PlaceGun()
         {
-            if (_gunMount == null || _handR == null || _handL == null) return;
+            if (GunMount == null || Weapon == null || _handR == null || _handL == null) return;
 
             Vector3 right = Palm(_handR, _fingersR);
             Vector3 along = Palm(_handL, _fingersL) - right;
             if (along.sqrMagnitude < 0.01f) along = transform.forward;   // hands together: point ahead
 
             var rotation = Quaternion.LookRotation(along, transform.up) * _gunAlign;
-            _gunMount.SetPositionAndRotation(right - rotation * _gripLocal, rotation);
+            GunMount.SetPositionAndRotation(right - rotation * _gripLocal, rotation);
         }
 
         /// <summary>Mixamo hand bones sit at the wrist; the grip is held further in, at the fingers' base.</summary>

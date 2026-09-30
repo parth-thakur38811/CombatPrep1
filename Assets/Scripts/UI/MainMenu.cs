@@ -11,7 +11,8 @@ using CombatPrep.Weapons;
 namespace CombatPrep.UI
 {
     /// <summary>
-    /// Pre-game loadout screen: pick one of five weapons and one of six skins, see the
+    /// Pre-game loadout screen: pick the weapon to start with (all five are carried - keys 1
+    /// to 5 switch in game, and each button shows its key) and one of six skins, see the
     /// result on a live rotating model, then drop in.
     ///
     /// The preview is a real weapon built by the same WeaponModelBuilder the game uses, on
@@ -188,6 +189,13 @@ namespace CombatPrep.UI
                 var b = Button_(all[i].Def.DisplayName, new Vector2(0f, 1f),
                                 new Vector2(72f, -222f - i * 72f), new Vector2(390f, 60f), 24,
                                 () => { _weaponIndex = index; RefreshSelection(); });
+
+                // The key that takes this gun out in game, where the finishes show a swatch.
+                var key = Text_((i + 1).ToString(), 22, TextAnchor.MiddleLeft, new Vector2(0f, 0.5f), Vector2.zero, 30f);
+                key.transform.SetParent(b.transform, false);
+                key.rectTransform.anchoredPosition = new Vector2(18f, 0f);
+                key.color = new Color(1f, 1f, 1f, 0.45f);
+
                 _weaponButtons.Add(b);
             }
 
@@ -238,7 +246,7 @@ namespace CombatPrep.UI
                                  () => OnPlayOnline?.Invoke(Weapon, Skin));
             online.image.color = new Color(0.82f, 0.36f, 0.08f, 0.95f);
 
-            var hint = Text_("WASD move   ·   RMB aim   ·   R reload   ·   G grenade   ·   SHIFT sprint   ·   CTRL crouch   ·   ESC menu",
+            var hint = Text_("WASD move   ·   RMB aim   ·   R reload   ·   1-5 weapon   ·   G grenade   ·   SHIFT sprint   ·   CTRL crouch   ·   ESC menu",
                              17, TextAnchor.LowerCenter, new Vector2(0.5f, 0f), new Vector2(0f, 30f), 1400f);
             hint.color = new Color(1f, 1f, 1f, 0.42f);
 

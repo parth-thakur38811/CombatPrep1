@@ -1,5 +1,5 @@
+using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
 using CombatPrep.Core;
 using CombatPrep.FX;
 using CombatPrep.Skins;
@@ -10,15 +10,21 @@ namespace CombatPrep.Net
 {
     /// <summary>
     /// What NetPlayer drives on a remote player's body, whichever body it is: smoothed aim
-    /// pitch, crouch stance, shots, death and a camera-facing nameplate.
+    /// pitch, crouch stance, the gun in their hands, shots and death.
     /// </summary>
     public class AvatarView : MonoBehaviour
     {
-        public Transform Nameplate;
-        public Text NameText;
+        /// <summary>The gun in their hands.</summary>
         public WeaponModel Weapon;
-        /// <summary>The muzzle flash on this player's gun.</summary>
+        /// <summary>The muzzle flash on that gun.</summary>
         public FlashFx Flash;
+        /// <summary>Where their guns are held, and their finish - set by AvatarBuilder.</summary>
+        public Transform GunMount;
+        public SkinDefinition Skin;
+
+        readonly Dictionary<int, (WeaponModel model, FlashFx flash)> _guns = new();
+        int _gunIndex = -1;
+        bool _visible = true;
 
         /// <summary>Look pitch in degrees, eased - positive is looking down.</summary>
         protected float Pitch;
@@ -33,10 +39,32 @@ namespace CombatPrep.Net
         /// <summary>Crouch arrives as a flag; the pose eases in rather than snapping.</summary>
         public void SetCrouch(bool crouched) => _stanceTarget = crouched ? 1f : 0f;
 
-        public void SetName(string n)
+        /// <summary>
+        /// Puts the gun with this WeaponLibrary index in their hands. Each gun is built the first
+        /// time they switch to it and kept, so switching back costs nothing.
+        /// </summary>
+        public void ShowWeapon(int index)
         {
-            if (NameText != null) NameText.text = n;
+            if (index == _gunIndex || index < 0 || index >= WeaponLibrary.All.Length || GunMount == null) return;
+
+            if (Weapon != null) Weapon.Root.gameObject.SetActive(false);
+            if (!_guns.TryGetValue(index, out var gun))
+            {
+                gun = AvatarBuilder.BuildGun(GunMount, WeaponLibrary.All[index].Shape, Skin);
+                // A gun picked up while the body is hidden (dead) stays hidden with it.
+                if (!_visible)
+                    foreach (var r in gun.model.Root.GetComponentsInChildren<Renderer>(true)) r.enabled = false;
+                _guns[index] = gun;
+            }
+
+            _gunIndex = index;
+            (Weapon, Flash) = gun;
+            Weapon.Root.gameObject.SetActive(true);
+            OnWeaponShown();
         }
+
+        /// <summary>A different gun is in their hands (Weapon) - for a body that holds it by hand.</summary>
+        protected virtual void OnWeaponShown() { }
 
         /// <summary>
         /// Hides a dead player: renderers *and* colliders, so a corpse can't be seen, shot or
@@ -44,9 +72,9 @@ namespace CombatPrep.Net
         /// </summary>
         public virtual void SetVisible(bool visible)
         {
+            _visible = visible;
             foreach (var r in GetComponentsInChildren<Renderer>(true)) r.enabled = visible;
             SetColliders(visible);
-            if (Nameplate != null) Nameplate.gameObject.SetActive(visible);
         }
 
         protected void SetColliders(bool on)
@@ -81,10 +109,6 @@ namespace CombatPrep.Net
             if (Mathf.Abs(Stance - _stanceTarget) < 0.002f) Stance = _stanceTarget;
 
             Pose();
-
-            var cam = Camera.main;
-            if (Nameplate != null && cam != null)
-                Nameplate.rotation = Quaternion.LookRotation(Nameplate.position - cam.transform.position);
         }
 
         /// <summary>Applies pitch and stance to the body, once a frame, after any animation.</summary>
@@ -150,10 +174,11 @@ namespace CombatPrep.Net
     }
 
     /// <summary>
-    /// Builds the third-person body other players see, holding their chosen weapon in their
-    /// chosen finish. The player's slot colour survives only where it helps: an armband and
-    /// the nameplate (plus a helmet band on the primitive soldier), so you can tell who's who
-    /// without anyone glowing like a toy in the gloom.
+    /// Builds the third-person body other players see, holding the gun they have out in their
+    /// chosen finish. The player's slot colour survives only where it helps: an armband (plus a
+    /// helmet band on the primitive soldier), so you can tell who's who without anyone glowing
+    /// like a toy in the gloom. There are no names over heads - they gave players away from
+    /// across the map.
     ///
     /// With the art library's soldier and its Mixamo animations present, that body is the
     /// rigged soldier (SoldierView); otherwise it is a blocky primitive soldier - muted
@@ -163,7 +188,7 @@ namespace CombatPrep.Net
     /// </summary>
     public static class AvatarBuilder
     {
-        /// <summary>One distinct identity colour per player slot: armband, helmet band, nameplate.</summary>
+        /// <summary>One distinct identity colour per player slot: armband and helmet band.</summary>
         public static readonly Color[] Palette =
         {
             new Color(0.95f, 0.45f, 0.12f),   // orange
@@ -197,17 +222,27 @@ namespace CombatPrep.Net
         static readonly Color Balaclava = new(0.10f, 0.10f, 0.10f);
 
         /// <param name="owner">What every hitzone reports damage to - the player's RemoteHitProxy.</param>
-        public static AvatarView Build(Transform parent, IDamageable owner, int slot, string displayName,
-                                       WeaponShape shape, SkinDefinition skin)
+        /// <param name="weapon">The gun in their hands, as a WeaponLibrary index.</param>
+        public static AvatarView Build(Transform parent, IDamageable owner, int slot, int weapon, SkinDefinition skin)
         {
             _owner = owner;
             var art = ArtLibrary.I;
             if (art != null && ArtLibrary.Has(art.Soldier))
             {
-                var soldier = BuildSoldier(parent, slot, displayName, shape, skin, art.Soldier);
+                var soldier = BuildSoldier(parent, slot, weapon, skin, art.Soldier);
                 if (soldier != null) return soldier;
             }
-            return BuildBlocky(parent, slot, displayName, shape, skin);
+            return BuildBlocky(parent, slot, weapon, skin);
+        }
+
+        /// <summary>One of their guns, in their finish, with its own muzzle flash.</summary>
+        public static (WeaponModel model, FlashFx flash) BuildGun(Transform mount, WeaponShape shape, SkinDefinition skin)
+        {
+            var model = WeaponModelBuilder.Build(mount, shape);
+            SkinApplier.Apply(model, skin);
+            var flash = FxSystem.I != null ? FxSystem.I.AttachMuzzle(model.Muzzle) : null;
+            WeaponModelBuilder.SetLayerRecursive(model.Root, PlayerRigBuilder.RemotePlayerLayer);
+            return (model, flash);
         }
 
         // Set for the duration of one Build call, so Part() needn't thread it through.
@@ -215,8 +250,8 @@ namespace CombatPrep.Net
 
         // ------------------------------------------------------------------ rigged soldier
 
-        static AvatarView BuildSoldier(Transform parent, int slot, string displayName, WeaponShape shape,
-                                       SkinDefinition skin, ArtLibrary.Character art)
+        static AvatarView BuildSoldier(Transform parent, int slot, int weapon, SkinDefinition skin,
+                                       ArtLibrary.Character art)
         {
             var avatar = SoldierAvatar(art.Prefab);
             if (avatar == null) return null;
@@ -242,13 +277,10 @@ namespace CombatPrep.Net
             AddArmband(animator, id);
 
             var view = root.gameObject.AddComponent<SoldierView>();
-            var mount = Prim.Empty(root, "GunMount");
-            var model = WeaponModelBuilder.Build(mount, shape);
-            SkinApplier.Apply(model, skin);
-            view.Init(animator, model, mount, art);
-            if (FxSystem.I != null) view.Flash = FxSystem.I.AttachRemoteMuzzle(model.Muzzle);
-
-            BuildNameplate(root, 2.1f, view, displayName, id);
+            view.GunMount = Prim.Empty(root, "GunMount");
+            view.Skin = skin;
+            view.Init(animator, art);
+            view.ShowWeapon(weapon);
 
             WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
             return view;
@@ -377,8 +409,7 @@ namespace CombatPrep.Net
 
         // ------------------------------------------------------------------ primitive soldier
 
-        static AvatarView BuildBlocky(Transform parent, int slot, string displayName, WeaponShape shape,
-                                      SkinDefinition skin)
+        static AvatarView BuildBlocky(Transform parent, int slot, int weapon, SkinDefinition skin)
         {
             Color id = Palette[Mathf.Abs(slot) % Palette.Length];
             Color uniform = Uniforms[Mathf.Abs(slot) % Uniforms.Length];
@@ -424,13 +455,9 @@ namespace CombatPrep.Net
             Prim.Box(aim, "Armband", new Vector3(0.21f, -0.06f, 0.06f), new Vector3(0.14f, 0.14f, 0.07f), id, 0f, 0.4f);
 
             // --- their actual gun, in their actual finish ---
-            var gunMount = Prim.Empty(aim, "GunMount", new Vector3(0.10f, -0.08f, 0.42f));
-            var model = WeaponModelBuilder.Build(gunMount, shape);
-            SkinApplier.Apply(model, skin);
-            view.Weapon = model;
-            if (FxSystem.I != null) view.Flash = FxSystem.I.AttachRemoteMuzzle(model.Muzzle);
-
-            BuildNameplate(upper, 2.15f - BlockyAvatarView.HipHeight, view, displayName, id);
+            view.GunMount = Prim.Empty(aim, "GunMount", new Vector3(0.10f, -0.08f, 0.42f));
+            view.Skin = skin;
+            view.ShowWeapon(weapon);
 
             WeaponModelBuilder.SetLayerRecursive(root, PlayerRigBuilder.RemotePlayerLayer);
             return view;
@@ -458,36 +485,5 @@ namespace CombatPrep.Net
             return t;
         }
 
-        static void BuildNameplate(Transform parent, float height, AvatarView view, string displayName, Color accent)
-        {
-            var go = new GameObject("Nameplate", typeof(RectTransform), typeof(Canvas));
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = new Vector3(0f, height, 0f);
-            go.transform.localScale = Vector3.one * 0.01f;
-
-            var canvas = go.GetComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            go.GetComponent<RectTransform>().sizeDelta = new Vector2(300f, 50f);
-
-            var textGo = new GameObject("Name", typeof(RectTransform), typeof(CanvasRenderer), typeof(Text), typeof(Outline));
-            textGo.transform.SetParent(go.transform, false);
-            var rt = textGo.GetComponent<RectTransform>();
-            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
-            rt.offsetMin = rt.offsetMax = Vector2.zero;
-
-            var text = textGo.GetComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            text.fontSize = 34;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.color = Color.Lerp(accent, Color.white, 0.35f);
-            text.text = displayName;
-
-            var outline = textGo.GetComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.85f);
-            outline.effectDistance = new Vector2(2f, -2f);
-
-            view.Nameplate = go.transform;
-            view.NameText = text;
-        }
     }
 }

@@ -32,6 +32,10 @@ namespace CombatPrep.Weapons
         public Vector3 SprintEuler = new Vector3(12f, -28f, -14f);
         public float SprintBlendSpeed = 9f;
 
+        [Header("Draw pose - where a gun being taken out comes up from")]
+        public Vector3 DrawPosition = new Vector3(0.03f, -0.24f, -0.06f);
+        public Vector3 DrawEuler = new Vector3(40f, -12f, 18f);
+
         WeaponDefinition _def;
         WeaponModel _model;
         PlayerMotor _motor;
@@ -40,6 +44,7 @@ namespace CombatPrep.Weapons
         Spring3 _kickPos, _kickRot, _sway;
         float _adsT, _sprintT, _bobTime;
         float _reloadT = -1f, _reloadDuration;
+        float _drawT = 1f, _drawDuration = 1f;
         float _sprintSuppressUntil;
 
         public float AdsProgress => _adsT;
@@ -113,14 +118,24 @@ namespace CombatPrep.Weapons
                 if (u >= 1f) _reloadT = -1f;
             }
 
+            // --- draw: up from below the screen, fast at first and settling at the end ---
+            Vector3 drawPos = Vector3.zero, drawEuler = Vector3.zero;
+            if (_drawT < 1f)
+            {
+                _drawT = Mathf.Min(1f, _drawT + dt / _drawDuration);
+                float down = (1f - _drawT) * (1f - _drawT) * (1f - _drawT);
+                drawPos = DrawPosition * down;
+                drawEuler = DrawEuler * down;
+            }
+
             // --- compose ---
             Vector3 basePos = Vector3.Lerp(HipPosition, _adsPosition, ads);
             Vector3 baseEuler = Vector3.Lerp(HipEuler, Vector3.zero, ads);
             basePos = Vector3.Lerp(basePos, SprintPosition, sprint);
             baseEuler = Vector3.Lerp(baseEuler, SprintEuler, sprint);
 
-            transform.localPosition = basePos + _sway.Value + bob + _kickPos.Value + reloadPos;
-            transform.localRotation = Quaternion.Euler(baseEuler + _kickRot.Value + reloadEuler
+            transform.localPosition = basePos + _sway.Value + bob + _kickPos.Value + reloadPos + drawPos;
+            transform.localRotation = Quaternion.Euler(baseEuler + _kickRot.Value + reloadEuler + drawEuler
                                                        + new Vector3(-_sway.Value.y * 220f, _sway.Value.x * 220f, 0f));
         }
 
@@ -146,6 +161,23 @@ namespace CombatPrep.Weapons
         {
             _reloadT = 0f;
             _reloadDuration = duration;
+        }
+
+        /// <summary>
+        /// Brings the gun up from below the screen, as when it's taken out. Anything left over
+        /// from the last time it was in hand - aim, reload, kick - is dropped, and the lowered
+        /// pose is applied at once, so the gun never shows a frame at the old pose.
+        /// </summary>
+        public void PlayDraw(float duration)
+        {
+            _drawT = 0f;
+            _drawDuration = Mathf.Max(0.01f, duration);
+            _adsT = _sprintT = 0f;
+            _reloadT = -1f;
+            _kickPos.Reset();
+            _kickRot.Reset();
+            _sway.Reset();
+            Tick(0f, false, Vector2.zero);
         }
     }
 }

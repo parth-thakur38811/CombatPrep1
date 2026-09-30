@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -12,7 +13,11 @@ namespace CombatPrep.Player
     {
         public static GameInput I { get; private set; }
 
+        /// <summary>Keys 1 to 5, one per gun in WeaponLibrary order.</summary>
+        public const int WeaponKeys = 5;
+
         InputAction _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause, _grenade;
+        readonly InputAction[] _weaponKeys = new InputAction[WeaponKeys];
 
         public Vector2 Move    => _move.ReadValue<Vector2>();
         public Vector2 Look    => _look.ReadValue<Vector2>();
@@ -26,6 +31,17 @@ namespace CombatPrep.Player
         public bool PausePress => _pause.WasPressedThisFrame();
         public bool FireRelease  => _fire.WasReleasedThisFrame();
         public bool GrenadePress => _grenade.WasPressedThisFrame();
+
+        /// <summary>The weapon key pressed this frame - 0 for key 1 up to 4 for key 5 - or -1.</summary>
+        public int WeaponKeyPress
+        {
+            get
+            {
+                for (int i = 0; i < _weaponKeys.Length; i++)
+                    if (_weaponKeys[i].WasPressedThisFrame()) return i;
+                return -1;
+            }
+        }
 
         void Awake()
         {
@@ -45,6 +61,9 @@ namespace CombatPrep.Player
             _crouch = new InputAction("Crouch", InputActionType.Button, "<Keyboard>/leftCtrl");
             _pause  = new InputAction("Pause",  InputActionType.Button, "<Keyboard>/escape");
             _grenade = new InputAction("Grenade", InputActionType.Button, "<Keyboard>/g");
+
+            for (int i = 0; i < _weaponKeys.Length; i++)
+                _weaponKeys[i] = new InputAction($"Weapon{i + 1}", InputActionType.Button, $"<Keyboard>/{i + 1}");
         }
 
         void OnEnable()
@@ -58,7 +77,12 @@ namespace CombatPrep.Player
             foreach (var a in All()) a.Disable();
         }
 
-        InputAction[] All() => new[] { _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause, _grenade };
+        InputAction[] All()
+        {
+            var all = new List<InputAction> { _move, _look, _fire, _aim, _reload, _sprint, _jump, _crouch, _pause, _grenade };
+            all.AddRange(_weaponKeys);
+            return all.ToArray();
+        }
 
         public static void LockCursor(bool locked)
         {

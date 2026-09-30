@@ -20,9 +20,8 @@ namespace CombatPrep.Weapons
         [Header("Refs")]
         public Camera Cam;
         public PlayerMotor Motor;
-        public GameObject WeaponHolder;
-        /// <summary>The firearm, disabled while a grenade is out so LMB throws instead of shooting.</summary>
-        public Weapon Weapon;
+        /// <summary>The guns - the one in hand is put away while a grenade is out, so LMB throws instead of shooting.</summary>
+        public WeaponLoadout Loadout;
 
         [Header("Loadout")]
         public int StartingCount = 4;
@@ -169,12 +168,10 @@ namespace CombatPrep.Weapons
             _poseT = 0f;
 
             if (_held != null) _held.gameObject.SetActive(_equipped);
-            if (WeaponHolder != null) WeaponHolder.SetActive(!_equipped);
 
-            // Hiding the gun's model is only cosmetic - the Weapon component lives on the
-            // parent and would keep firing. Disable it so a held LMB charges the throw
-            // instead of emptying the magazine.
-            if (Weapon != null) Weapon.Active = !_equipped;
+            // The gun is switched off entirely, not just hidden, so a held LMB charges the
+            // throw instead of emptying the magazine.
+            if (Loadout != null) Loadout.SetHolstered(_equipped);
 
             // The weapon owns the crosshair while it is out; hide it for the grenade so the
             // arc is the only aiming aid on screen.
@@ -313,8 +310,7 @@ namespace CombatPrep.Weapons
             // Back to the gun once the throw is away; G brings another out.
             _equipped = false;
             if (_held != null) _held.gameObject.SetActive(false);
-            if (WeaponHolder != null) WeaponHolder.SetActive(true);
-            if (Weapon != null) Weapon.Active = true;
+            if (Loadout != null) Loadout.SetHolstered(false);
             Hud.I.SetCrosshairVisible(true);
         }
     }

@@ -16,12 +16,13 @@ namespace CombatPrep.Core
         public PlayerLook Look;
         public PlayerMotor Motor;
         public CameraShake Shake;
-        public Weapon Weapon;
+        /// <summary>All five guns; keys 1-5 switch between them.</summary>
+        public WeaponLoadout Loadout;
         public GrenadeThrower Thrower;
     }
 
     /// <summary>
-    /// Builds the local, first-person player: controller, camera, weapon and grenades.
+    /// Builds the local, first-person player: controller, camera, all five guns and grenades.
     ///
     /// Shared by Practice and Online so the two can never drift apart. It builds onto a root
     /// the caller supplies rather than creating one, because online that root already
@@ -88,13 +89,47 @@ namespace CombatPrep.Core
             {
                 Root = root, Cam = cam, Look = look, Motor = motor, Shake = shake
             };
-            BuildWeapon(ref rig, entry, skin);
+            BuildWeapons(ref rig, entry, skin);
             return rig;
         }
 
-        static void BuildWeapon(ref PlayerRig rig, WeaponEntry entry, SkinDefinition skin)
+        /// <summary>
+        /// Every gun in the roster, all in the chosen finish, each on its own holder with its own
+        /// animator and magazine; <paramref name="start"/> is the one in hand. The loadout that
+        /// switches them and the grenades share a holder of their own above them.
+        /// </summary>
+        static void BuildWeapons(ref PlayerRig rig, WeaponEntry start, SkinDefinition skin)
         {
-            var holder = Prim.Empty(rig.Cam.transform, "WeaponHolder");
+            var rack = Prim.Empty(rig.Cam.transform, "Weapons");
+
+            var all = WeaponLibrary.All;
+            var weapons = new Weapon[all.Length];
+            for (int i = 0; i < all.Length; i++)
+                weapons[i] = BuildWeapon(rack, rig, all[i], skin);
+
+            var loadout = rack.gameObject.AddComponent<WeaponLoadout>();
+
+            // The grenade puts the gun in hand away while it's out. Blast casts share the
+            // guns' hit mask; the arc preview uses the physical mask so it bounces off exactly
+            // what the real grenade bounces off.
+            var thrower = rack.gameObject.AddComponent<GrenadeThrower>();
+            thrower.Cam = rig.Cam;
+            thrower.Motor = rig.Motor;
+            thrower.Loadout = loadout;
+            thrower.BlastMask = HitMask;
+            thrower.ArcMask = ArcMask;
+            thrower.Init();
+
+            loadout.Thrower = thrower;
+            loadout.Init(weapons, System.Array.IndexOf(all, start));
+
+            rig.Loadout = loadout;
+            rig.Thrower = thrower;
+        }
+
+        static Weapon BuildWeapon(Transform rack, PlayerRig rig, WeaponEntry entry, SkinDefinition skin)
+        {
+            var holder = Prim.Empty(rack, entry.Id);
             var anim = holder.gameObject.AddComponent<WeaponAnimator>();
 
             var model = WeaponModelBuilder.Build(holder, entry.Shape);
@@ -109,20 +144,8 @@ namespace CombatPrep.Core
             weapon.HitMask = HitMask;
             weapon.Init(entry.Def, model, anim);
 
-            // Grenade loadout lives on the same holder. It disables the weapon while
-            // equipped. Blast casts share the weapon's hit mask; the arc preview uses the
-            // physical mask so it bounces off exactly what the real grenade bounces off.
-            var thrower = holder.gameObject.AddComponent<GrenadeThrower>();
-            thrower.Cam = rig.Cam;
-            thrower.Motor = rig.Motor;
-            thrower.WeaponHolder = model.Root.gameObject;
-            thrower.Weapon = weapon;
-            thrower.BlastMask = HitMask;
-            thrower.ArcMask = ArcMask;
-            thrower.Init();
-
-            rig.Weapon = weapon;
-            rig.Thrower = thrower;
+            holder.gameObject.SetActive(false);    // until the loadout takes it out
+            return weapon;
         }
     }
 }

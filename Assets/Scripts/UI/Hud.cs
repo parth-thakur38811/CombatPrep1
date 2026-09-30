@@ -40,6 +40,14 @@ namespace CombatPrep.UI
 
         Text _ammo, _stats, _weaponName, _grenades;
 
+        // --- the guns on keys 1-5, listed for a moment whenever one is picked ---
+        CanvasGroup _slots;
+        readonly List<Text> _slotLines = new();
+        float _slotsUntil;
+        const float SlotsHold = 1.6f, SlotsFade = 0.5f;
+        static readonly Color SlotPicked = new(1f, 0.62f, 0.20f);
+        static readonly Color SlotOther = new(1f, 1f, 1f, 0.5f);
+
         // --- online match UI ---
         GameObject _healthPanel;
         RectTransform _healthFill;
@@ -158,6 +166,15 @@ namespace CombatPrep.UI
             // Grenade count, stacked above the weapon name in the bottom-right corner.
             _grenades = MakeText(parent, "Grenades", 22, TextAnchor.LowerRight, new Vector2(1f, 0f), new Vector2(-48f, 138f));
             _grenades.color = new Color(0.75f, 0.85f, 0.65f, 0.85f);
+
+            // Weapon keys, stacked above the grenade count. One group, so it fades as a whole.
+            var slotsGo = new GameObject("WeaponSlots", typeof(RectTransform), typeof(CanvasGroup));
+            slotsGo.transform.SetParent(parent, false);
+            Anchor(slotsGo.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(-48f, 184f), new Vector2(520f, 160f));
+            _slots = slotsGo.GetComponent<CanvasGroup>();
+            _slots.alpha = 0f;
+            _slots.interactable = false;
+            _slots.blocksRaycasts = false;
 
             BuildMatchUi(parent);
         }
@@ -401,6 +418,32 @@ namespace CombatPrep.UI
 
         public void SetWeaponName(string n) => _weaponName.text = n;
 
+        /// <summary>
+        /// Lists the guns against their keys, the one in hand highlighted, then fades the list
+        /// out. Shown on spawning and on every weapon key.
+        /// </summary>
+        public void ShowWeaponSlots(string[] names, int current)
+        {
+            while (_slotLines.Count < names.Length)
+                _slotLines.Add(MakeText(_slots.transform, "Slot" + _slotLines.Count, 20,
+                                        TextAnchor.LowerRight, new Vector2(1f, 0f), Vector2.zero));
+
+            for (int i = 0; i < _slotLines.Count; i++)
+            {
+                var line = _slotLines[i];
+                line.gameObject.SetActive(i < names.Length);
+                if (i >= names.Length) continue;
+
+                // Key 1 on top; the keys line up down the right-hand edge.
+                line.text = $"{names[i]}   {i + 1}";
+                line.color = i == current ? SlotPicked : SlotOther;
+                line.rectTransform.anchoredPosition = new Vector2(0f, (names.Length - 1 - i) * 28f);
+            }
+
+            _slotsUntil = Time.time + SlotsHold + SlotsFade;
+            _slots.alpha = 1f;
+        }
+
         public void SetGrenades(int count)
         {
             if (_grenades == null) return;
@@ -444,6 +487,9 @@ namespace CombatPrep.UI
         void LateUpdate()
         {
             UpdateMatchUi();
+
+            if (_slots.alpha > 0f)
+                _slots.alpha = Mathf.Clamp01((_slotsUntil - Time.time) / SlotsFade);
 
             if (_hitmarker.gameObject.activeSelf)
             {

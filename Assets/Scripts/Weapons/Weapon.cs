@@ -16,6 +16,9 @@ namespace CombatPrep.Weapons
     /// landed. Firing from the muzzle directly is the classic first-person bug: the barrel
     /// sits below and right of the eye, so shots taken while hugging cover hit the wall you
     /// are leaning past.
+    ///
+    /// The player carries all five guns, one Weapon each (see WeaponLoadout); only the one in
+    /// hand is active. Each keeps its own magazine while it's put away.
     /// </summary>
     public class Weapon : MonoBehaviour
     {
@@ -32,13 +35,18 @@ namespace CombatPrep.Weapons
         WeaponAnimator _anim;
         RecoilSystem _recoil;
         SpreadSystem _spread;
+        FlashFx _flash;
 
         int _mag, _reserve;
         float _nextShotTime;
         float _reloadDoneAt = -1f;
         int _burstRemaining;
+        float _readyAt;
 
         public bool IsReloading => _reloadDoneAt > 0f;
+
+        /// <summary>False while the gun is still being brought up after being taken out.</summary>
+        public bool IsReady => Time.time >= _readyAt;
 
         /// <summary>Raised once per trigger pull, before any pellet is traced.</summary>
         public event System.Action ShotStarting;
@@ -56,7 +64,7 @@ namespace CombatPrep.Weapons
             _reserve = Def.ReserveAmmo;
             _recoil.Reset();
             _spread.Reset();
-            Hud.I.SetAmmo(_mag, _reserve, false);
+            if (isActiveAndEnabled) Hud.I.SetAmmo(_mag, _reserve, false);
         }
 
         bool _active = true;
@@ -72,14 +80,16 @@ namespace CombatPrep.Weapons
             {
                 if (_active == value) return;
                 _active = value;
-                if (!value)
-                {
-                    if (Look != null) Look.IsAiming = false;
-                    if (Motor != null) Motor.AdsLock = false;
-                    if (_anim != null) _anim.ForceHip();
-                    if (Cam != null && Def != null) Cam.fieldOfView = Def.HipFov;
-                }
+                if (!value) LetGoOfAim();
             }
+        }
+
+        void LetGoOfAim()
+        {
+            if (Look != null) Look.IsAiming = false;
+            if (Motor != null) Motor.AdsLock = false;
+            if (_anim != null) _anim.ForceHip();
+            if (Cam != null && Def != null) Cam.fieldOfView = Def.HipFov;
         }
 
         public void Init(WeaponDefinition def, WeaponModel model, WeaponAnimator anim)
@@ -95,16 +105,41 @@ namespace CombatPrep.Weapons
             _mag = def.MagSize;
             _reserve = def.ReserveAmmo;
 
+            GameAudio.I.Prepare(def);
+            _flash = FxSystem.I.AttachMuzzle(model.Muzzle);
+        }
+
+        /// <summary>
+        /// Takes this gun out: it comes up from below the screen and can't fire or aim until it
+        /// is up (DrawTime). The HUD, zoom and aim sensitivity switch to it.
+        /// </summary>
+        public void Draw()
+        {
+            _readyAt = Time.time + Def.DrawTime;
+            _anim.PlayDraw(Def.DrawTime);
+            _recoil.Reset();
+            _spread.Reset();
+
             // Aim sensitivity is a weapon property: a 22-degree scope is unusable at the
             // same turn rate as a red dot.
-            Look.AdsSensScale = def.AdsSensScale;
+            Look.AdsSensScale = Def.AdsSensScale;
+            Cam.fieldOfView = Def.HipFov;
 
-            GameAudio.I.SetLocalWeapon(def);
-            FxSystem.I.AttachMuzzle(model.Muzzle);
-
-            Hud.I.SetWeaponName(def.DisplayName);
+            Hud.I.SetWeaponName(Def.DisplayName);
             Hud.I.SetAmmo(_mag, _reserve, false);
-            Hud.I.SetCrosshairStyle(def.Crosshair, def.CrosshairColor);
+            Hud.I.SetCrosshairStyle(Def.Crosshair, Def.CrosshairColor);
+            GameAudio.I.Play(GameAudio.I.WeaponDraw, 0.55f);
+        }
+
+        /// <summary>
+        /// Put away - for another gun, or for a grenade. The aim lets go, and a reload that
+        /// hadn't finished is abandoned: the magazine stays as it was.
+        /// </summary>
+        void OnDisable()
+        {
+            LetGoOfAim();
+            _reloadDoneAt = -1f;
+            _burstRemaining = 0;
         }
 
         void Update()
@@ -116,17 +151,18 @@ namespace CombatPrep.Weapons
 
             // Aiming is not gated on sprinting: raising the sights cancels the sprint via
             // AdsLock instead. Gating it the other way round meant holding Shift+W+RMB
-            // simply never aimed.
-            bool aiming = input.Aiming && !IsReloading;
+            // simply never aimed. A gun still coming up can't aim, fire or reload yet.
+            bool ready = IsReady;
+            bool aiming = input.Aiming && !IsReloading && ready;
             Look.IsAiming = aiming;
             Motor.AdsLock = aiming;
 
             // --- reload ---
-            if (input.Reload) TryReload();
+            if (input.Reload && ready) TryReload();
             if (IsReloading && Time.time >= _reloadDoneAt) FinishReload();
 
             // --- fire ---
-            if (Def.Mode == FireMode.Burst && input.FirePress && _burstRemaining <= 0)
+            if (Def.Mode == FireMode.Burst && input.FirePress && ready && _burstRemaining <= 0)
                 _burstRemaining = Def.BurstCount;
 
             bool wantsFire = Def.Mode switch
@@ -137,9 +173,9 @@ namespace CombatPrep.Weapons
                 _ => false
             };
 
-            if (wantsFire && CanFire()) Fire(aiming);
+            if (wantsFire && ready && CanFire()) Fire(aiming);
 
-            if (input.FirePress && _mag <= 0 && !IsReloading)
+            if (input.FirePress && ready && _mag <= 0 && !IsReloading)
             {
                 GameAudio.I.Play(GameAudio.I.DryFire, 0.5f);
                 TryReload();
@@ -231,8 +267,8 @@ namespace CombatPrep.Weapons
             }
 
             // --- feedback ---
-            FxSystem.I.MuzzleFlash();
-            GameAudio.I.PlayLocalShot();
+            if (_flash != null) _flash.Play();
+            GameAudio.I.PlayLocalShot(Def);
 
             Look.AddRecoil(_recoil.NextImpulse(aiming));
             _anim.Kick();

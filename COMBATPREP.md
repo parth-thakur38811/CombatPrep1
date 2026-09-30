@@ -22,6 +22,8 @@ texture and every sound are built at runtime.
 | `LMB` | Fire |
 | `RMB` | Aim down sights |
 | `R` | Reload |
+| `1`–`5` | Switch weapon |
+| `G` | Grenade (hold `LMB` to aim, release to throw) |
 | `Shift` | Sprint |
 | `Ctrl` | Crouch |
 | `Space` | Jump |

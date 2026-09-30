@@ -89,6 +89,8 @@ namespace CombatPrep.Weapons
 
         [Header("Handling")]
         public float AdsTime = 0.16f;
+        /// <summary>Seconds to bring the gun up when it's taken out; it can't fire or aim until then.</summary>
+        public float DrawTime = 0.4f;
         /// <summary>Look-sensitivity multiplier while aiming. Magnified optics need this well below 1.</summary>
         public float AdsSensScale = 0.72f;
         public float HipFov = 78f;

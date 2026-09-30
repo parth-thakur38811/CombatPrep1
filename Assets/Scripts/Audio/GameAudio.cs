@@ -25,7 +25,7 @@ namespace CombatPrep.Audio
         AudioSource[] _voices;
         int _next;
 
-        public AudioClip DryFire, MagOut, MagIn, BoltRelease;
+        public AudioClip DryFire, MagOut, MagIn, BoltRelease, WeaponDraw;
         public AudioClip HitMarker, HeadshotMarker, KillMarker;
         public AudioClip ImpactHard, ImpactSoft;
         public AudioClip Explosion;
@@ -56,6 +56,7 @@ namespace CombatPrep.Audio
             MagOut = Synth.Click("MagOut", 0.8f, 0.38f);
             MagIn = Synth.Click("MagIn", 1.0f, 0.45f);
             BoltRelease = Synth.Click("BoltRelease", 1.6f, 0.50f);
+            WeaponDraw = Synth.Click("WeaponDraw", 1.15f, 0.34f);
 
             HitMarker = Synth.Blip("HitMarker", 1350f, 55f, 0.30f);
             HeadshotMarker = Synth.Blip("Headshot", 1750f, 45f, 0.34f, 2600f);
@@ -106,7 +107,6 @@ namespace CombatPrep.Audio
         }
 
         readonly Dictionary<WeaponDefinition, ShotSet> _shots = new();
-        WeaponDefinition _local;
 
         /// <summary>
         /// Every gun has its own set, built once. A shared clip would make a friend's shotgun
@@ -148,20 +148,19 @@ namespace CombatPrep.Audio
         /// <summary>A report for this gun - distant skirmishes use it too.</summary>
         public AudioClip ShotFor(WeaponDefinition def) => def == null ? null : NextTake(SetFor(def));
 
-        /// <summary>The gun in your hands, for PlayLocalShot.</summary>
-        public void SetLocalWeapon(WeaponDefinition def)
+        /// <summary>Builds a gun's sounds now rather than on its first trigger pull.</summary>
+        public void Prepare(WeaponDefinition def)
         {
-            _local = def;
-            if (def != null) SetFor(def);    // build now rather than on the first trigger pull
+            if (def != null) SetFor(def);
         }
 
         /// <summary>Your own gunshot: flat in both ears, not placed in the world.</summary>
-        public void PlayLocalShot()
+        public void PlayLocalShot(WeaponDefinition def)
         {
-            if (_local == null) return;
-            var set = SetFor(_local);
-            Play(NextTake(set), _local.ShotGain, 0.035f);
-            if (set.Tail != null) Play(set.Tail, _local.ShotGain * set.TailGain, 0.06f);
+            if (def == null) return;
+            var set = SetFor(def);
+            Play(NextTake(set), def.ShotGain, 0.035f);
+            if (set.Tail != null) Play(set.Tail, def.ShotGain * set.TailGain, 0.06f);
         }
 
         /// <summary>Someone else's gunshot, from where their gun is.</summary>

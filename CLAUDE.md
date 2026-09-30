@@ -181,3 +181,10 @@ the folder above it is only a container.
   reflections fixed; berms no longer frosty. The storm light now comes from behind the firing
   line, a little brighter overall. First-person forearms hold the gun; a fill light on the
   viewmodel keeps it from reading as a black cut-out.
+- **Pistol hold:** both hands on the grip - a high grip, fingers square across the front, the
+  off hand the firing hand mirrored onto the grip's left - instead of cupped under it palm-up,
+  where it read as an empty hand. Held further out than the long guns and turned in a little
+  (`WeaponModel.Sidearm`), with its magazine inside the grip. Tuned by rendering variants side
+  by side: centred and seen square from behind, the hands read as lumps round a stick. The
+  first-person arms drop the soldier's skin material: the bare arm under the sleeves showed
+  through the cloth.

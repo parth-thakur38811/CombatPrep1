@@ -39,13 +39,10 @@ namespace CombatPrep.Weapons
         public Transform Muzzle;      // tracer / muzzle-flash origin, at the tip
         public Transform EjectPort;
         public Transform SightPoint;  // bore centre; the ADS pose is solved from this
-        public Transform Grip;        // firing hand, for third-person soldiers
-        public Transform Support;     // other hand
-        /// <summary>
-        /// Where your own off hand holds it in first person: the support point, or on a pistol,
-        /// cupped under the grip hand (its "support" is out at the muzzle for third person).
-        /// </summary>
-        public Transform OffHand;
+        public Transform Grip;        // firing hand
+        public Transform Support;     // other hand (a pistol's is out at the muzzle, third person only)
+        /// <summary>A pistol: no fore-end, held in both hands by the grip.</summary>
+        public bool Sidearm;
         public float SightDistance = 0.22f;
         /// <summary>
         /// The optic's reticle disc, if it has one. Built switched off - only the first-person
@@ -79,7 +76,8 @@ namespace CombatPrep.Weapons
 
         public static WeaponModel Build(Transform parent, WeaponShape s)
         {
-            var model = new WeaponModel { SightDistance = s.SightDistance };
+            bool sidearm = s.HandguardLen <= 0.01f;
+            var model = new WeaponModel { SightDistance = s.SightDistance, Sidearm = sidearm };
             var root = Prim.Empty(parent, "Weapon");
             model.Root = root;
 
@@ -112,9 +110,11 @@ namespace CombatPrep.Weapons
             }
 
             // --- grip ---
-            Add(model, PartGroup.Furniture, Prim.Box(root, "Grip",
-                new Vector3(0f, -s.ReceiverH * 0.95f, -halfRec * 0.42f),
-                new Vector3(0.036f, 0.118f, 0.048f), Mat.Polymer, 0.05f, 0.30f, false, new Vector3(20f, 0f, 0f)));
+            var gripCentre = new Vector3(0f, -s.ReceiverH * 0.95f, -halfRec * 0.42f);
+            var gripEuler = new Vector3(20f, 0f, 0f);       // raked back, bottom behind top
+            const float gripLen = 0.118f;
+            Add(model, PartGroup.Furniture, Prim.Box(root, "Grip", gripCentre,
+                new Vector3(0.036f, gripLen, 0.048f), Mat.Polymer, 0.05f, 0.30f, false, gripEuler));
 
             // --- stock ---
             if (s.Stock)
@@ -150,7 +150,14 @@ namespace CombatPrep.Weapons
             }
 
             // --- magazine ---
-            if (s.Magazine)
+            if (s.Magazine && sidearm)
+            {
+                // A pistol's is in the grip: only its base plate shows, under it.
+                Add(model, PartGroup.Magazine, Prim.Box(root, "MagBase",
+                    gripCentre + Quaternion.Euler(gripEuler) * Vector3.down * (gripLen * 0.5f + 0.004f),
+                    new Vector3(0.038f, 0.008f, 0.052f), Mat.Polymer, 0.05f, 0.30f, false, gripEuler));
+            }
+            else if (s.Magazine)
             {
                 Add(model, PartGroup.Magazine, Prim.Box(root, "Magazine",
                     new Vector3(0f, -s.ReceiverH * 0.5f - s.MagLen * 0.5f, 0.055f),
@@ -178,18 +185,16 @@ namespace CombatPrep.Weapons
             model.EjectPort = Prim.Empty(root, "EjectOrigin",
                 new Vector3(s.ReceiverW * 0.7f, s.ReceiverH * 0.2f, 0.07f));
 
-            // Where a third-person soldier's hands go: the firing hand round the grip, the other
-            // on the foregrip or under the handguard. A pistol has neither, so its "support"
-            // point is out along the barrel - held in a rifle pose, it simply points that way.
+            // Where the hands go: the firing hand round the grip, the other on the foregrip or
+            // under the handguard. A pistol has neither, so its "support" point is out along the
+            // barrel - a third-person soldier holds it in a rifle pose, and it simply points that
+            // way. Your own hands both take a pistol's grip (FirstPersonArms).
             model.Grip = Prim.Empty(root, "GripPoint", new Vector3(0f, -s.ReceiverH * 0.8f, -halfRec * 0.42f));
             Vector3 support;
-            if (s.HandguardLen <= 0.01f) support = new Vector3(0f, -s.ReceiverH * 0.3f, tipZ);
+            if (sidearm) support = new Vector3(0f, -s.ReceiverH * 0.3f, tipZ);
             else if (s.Foregrip) support = new Vector3(0f, -s.ReceiverH * 0.85f, halfRec + s.HandguardLen * 0.68f);
             else support = new Vector3(0f, -s.ReceiverH * 0.5f, halfRec + s.HandguardLen * 0.45f);
             model.Support = Prim.Empty(root, "SupportPoint", support);
-            model.OffHand = s.HandguardLen <= 0.01f
-                ? Prim.Empty(root, "OffHandPoint", new Vector3(-0.012f, -s.ReceiverH * 1.25f, -halfRec * 0.25f))
-                : model.Support;
 
             return model;
         }

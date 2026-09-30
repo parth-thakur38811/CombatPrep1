@@ -62,6 +62,15 @@ namespace CombatPrep.Weapons
             _model = model;
             _motor = motor;
 
+            // A pistol is held out in both hands, further off than a long gun sits at the shoulder
+            // (in a rifle's spot it filled a third of the screen, the arms folded), and turned in
+            // a little more, so its left side and the off hand wrapped round the grip show.
+            if (model.Sidearm)
+            {
+                HipPosition = new Vector3(0.115f, -0.125f, 0.37f);
+                HipEuler = new Vector3(0f, -5f, 0f);
+            }
+
             // Solve the ADS pose: root + sightLocalOffset must land exactly on the camera
             // axis at the weapon's own eye-relief distance. Solving all three axes (not just
             // x/y) is what lets a long scope and a compact red dot both sit correctly.

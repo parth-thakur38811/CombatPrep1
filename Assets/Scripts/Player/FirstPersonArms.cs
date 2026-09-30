@@ -34,6 +34,14 @@ namespace CombatPrep.Player
             "LeftArm", "LeftForeArm", "LeftHand", "RightArm", "RightForeArm", "RightHand",
         };
 
+        // A pistol, both hands on the grip (gun space): where the right palm sits from the grip
+        // point, which way its fingers run and its palm faces - a high grip, the fingers square
+        // across the front strap. The left hand is its mirror, a little lower and further forward.
+        static readonly Vector3 PistolPalmAt = new(0.028f, -0.04f, -0.008f);
+        static readonly Vector3 PistolFingers = new(-0.1f, -0.42f, 0.9f);
+        static readonly Vector3 PistolPalm = Vector3.left;
+        static readonly Vector3 PistolLeftShift = new(0f, -0.008f, 0.006f);
+
         WeaponLoadout _loadout;
         Transform _cam;
         Arm _right, _left;
@@ -140,7 +148,11 @@ namespace CombatPrep.Player
             return arm;
         }
 
-        /// <summary>A copy of the mesh keeping only the triangles whose corners belong to an arm joint.</summary>
+        /// <summary>
+        /// A copy of the mesh keeping only the triangles whose corners belong to an arm joint, and
+        /// none of the skin material: the gloves are kit, and the bare arm under the sleeves only
+        /// ever showed where the reach's twist pushed it out through the cloth.
+        /// </summary>
         static Mesh ArmsOnly(SkinnedMeshRenderer smr)
         {
             var src = smr.sharedMesh;
@@ -163,17 +175,21 @@ namespace CombatPrep.Player
                 return top < armIndex.Length && armIndex[top];
             }
 
+            var materials = smr.sharedMaterials;
             var mesh = Instantiate(src);
             mesh.name = "Arms";
             for (int s = 0; s < src.subMeshCount; s++)
             {
                 var tris = src.GetTriangles(s);
                 var kept = new List<int>(tris.Length / 4);
-                for (int i = 0; i < tris.Length; i += 3)
-                    if (OnArm(tris[i]) && OnArm(tris[i + 1]) && OnArm(tris[i + 2]))
-                    {
-                        kept.Add(tris[i]); kept.Add(tris[i + 1]); kept.Add(tris[i + 2]);
-                    }
+                bool skin = s < materials.Length && materials[s] != null
+                            && materials[s].name.IndexOf("skin", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                if (!skin)
+                    for (int i = 0; i < tris.Length; i += 3)
+                        if (OnArm(tris[i]) && OnArm(tris[i + 1]) && OnArm(tris[i + 2]))
+                        {
+                            kept.Add(tris[i]); kept.Add(tris[i + 1]); kept.Add(tris[i + 2]);
+                        }
                 mesh.SetTriangles(kept, s);
             }
             return mesh;
@@ -183,26 +199,44 @@ namespace CombatPrep.Player
         {
             var weapon = _loadout != null ? _loadout.Current : null;
             var model = weapon != null && weapon.isActiveAndEnabled ? weapon.Model : null;
-            bool holding = model != null && model.Grip != null && model.OffHand != null;
+            bool holding = model != null && model.Grip != null && model.Support != null;
             _renderer.enabled = holding;
             if (!holding) return;
 
             foreach (var (bone, rest) in _rest) bone.localRotation = rest;
 
-            // Hand frames on the gun: the right hand round the grip, palm against its right side,
-            // fingers wrapping forward and down; the left under the fore-end, palm up. Each palm
-            // is placed where it holds, and the wrist follows from the hand's frame.
+            // Each palm is placed where it holds, the hand turned to its frame on the gun, and the
+            // wrist follows from that.
             var gun = model.Root;
+            var rightPole = _cam.TransformDirection(new Vector3(0.7f, -1f, -0.4f));
+            var leftPole = _cam.TransformDirection(new Vector3(-0.8f, -1f, -0.2f));
+            if (model.Sidearm)
+            {
+                // A pistol is held in both hands by the grip: the left hand is the right one
+                // mirrored, palm flat on the grip's other side and fingers wrapped over the right
+                // hand's. (Cupped under it, palm up, it read as an empty hand beside the gun.)
+                var mirror = new Vector3(-1f, 1f, 1f);
+                Reach(_right, model.Grip.position + gun.TransformVector(PistolPalmAt),
+                      gun.TransformDirection(PistolFingers).normalized, gun.TransformDirection(PistolPalm).normalized,
+                      rightPole);
+                Reach(_left, model.Grip.position + gun.TransformVector(Vector3.Scale(PistolPalmAt, mirror) + PistolLeftShift),
+                      gun.TransformDirection(Vector3.Scale(PistolFingers, mirror)).normalized,
+                      gun.TransformDirection(Vector3.Scale(PistolPalm, mirror)).normalized, leftPole);
+                return;
+            }
+
+            // The right hand round the grip, palm against its right side, fingers wrapping
+            // forward and down.
             var rightFingers = gun.TransformDirection(new Vector3(-0.25f, -0.75f, 0.6f)).normalized;
             var rightPalm = gun.TransformDirection(Vector3.left);
             Reach(_right, model.Grip.position - rightPalm * 0.03f + gun.TransformDirection(Vector3.down) * 0.03f,
-                  rightFingers, rightPalm, _cam.TransformDirection(new Vector3(0.7f, -1f, -0.4f)));
+                  rightFingers, rightPalm, rightPole);
 
-            // Fingers run across the fore-end, so closing them wraps it; the thumb lies along it.
+            // The left under the fore-end, palm up: the fingers run across it, so closing them
+            // wraps it, and the thumb lies along it.
             var leftFingers = gun.TransformDirection(new Vector3(0.9f, 0f, 0.42f)).normalized;
             var leftPalm = gun.TransformDirection(Vector3.up);
-            Reach(_left, model.OffHand.position - leftPalm * 0.01f, leftFingers, leftPalm,
-                  _cam.TransformDirection(new Vector3(-0.8f, -1f, -0.2f)));
+            Reach(_left, model.Support.position - leftPalm * 0.01f, leftFingers, leftPalm, leftPole);
         }
 
         /// <summary>

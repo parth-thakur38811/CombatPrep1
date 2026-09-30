@@ -65,7 +65,7 @@ namespace CombatPrep.Core
 
             var dark = new Material(_ruinShellArt.Material) { name = "ConcreteScorched" };
             var c = _ruinShellArt.Material.GetColor("_BaseColor");
-            dark.SetColor("_BaseColor", new Color(c.r * 0.42f, c.g * 0.4f, c.b * 0.38f, 1f));
+            dark.SetColor("_BaseColor", new Color(c.r * 0.62f, c.g * 0.6f, c.b * 0.57f, 1f));
             _ruinScorchedArt = new ArtLibrary.Surface
             {
                 Material = dark, TileMeters = _ruinShellArt.TileMeters, ImpactColor = _ruinShellArt.ImpactColor * 0.4f
@@ -220,6 +220,16 @@ namespace CombatPrep.Core
                                 Art.Rubble, mat, collider: true,
                                 euler: Turn(Random.Range(-12f, 12f), Random.Range(0f, 360f), Random.Range(-12f, 12f)));
 
+            // Reinforcing bar, from a broken edge out along a direction, bent a little.
+            void Rebar(Vector3 from, Vector3 dir, float length)
+            {
+                var bend = Quaternion.Euler(Random.Range(-14f, 14f), 0f, Random.Range(-14f, 14f));
+                var along = (bend * dir).normalized;
+                var bar = Prim.Pillar(b, "Rebar", from + along * (length * 0.5f), 0.018f, length,
+                                      Mat.RustDark, 0.45f, 0.35f);
+                bar.localRotation = Quaternion.FromToRotation(Vector3.up, along);
+            }
+
             float w = size.x, d = size.y, full = RuinStorey * 2f;
             float innerW = w - RuinWall * 2f, innerD = d - RuinWall * 2f;
 
@@ -262,23 +272,42 @@ namespace CombatPrep.Core
                               : Random.value < 0.35f ? Random.Range(RuinStorey - 0.3f, RuinStorey + 0.9f)
                               : full * Random.Range(0.55f, 1f);
 
-                    Vector3 On(float y) => alongX ? At(along, y, across) : At(across, y, along);
-                    void Wall(float from, float to)
+                    Vector3 On(float y, float a = 0f) => alongX ? At(along + a, y, across) : At(across, y, along + a);
+                    void Wall(float from, float to, float width = -1f, float a = 0f)
                     {
                         if (to - from < 0.05f) return;
-                        var dims = alongX ? new Vector3(bw, to - from, RuinWall) : new Vector3(RuinWall, to - from, bw);
-                        Piece("Wall", On((from + to) * 0.5f), dims);
+                        float wide = width > 0f ? width : bw;
+                        var dims = alongX ? new Vector3(wide, to - from, RuinWall) : new Vector3(RuinWall, to - from, wide);
+                        Piece("Wall", On((from + to) * 0.5f, a), dims);
+                    }
+
+                    // The top of a bay, broken: one half standing to the full height, the other
+                    // snapped off lower with the reinforcing bars still sticking out of it.
+                    void Topped(float from, float to)
+                    {
+                        float jag = Mathf.Min(0.8f, (to - from) * 0.4f);
+                        if (jag < 0.25f) { Wall(from, to); return; }
+                        float cut = to - jag;
+                        Wall(from, cut);
+                        float low = cut + jag * Random.Range(0.1f, 0.55f);
+                        float highSide = Random.value < 0.5f ? -1f : 1f;
+                        Wall(cut, to, bw * 0.5f, highSide * bw * 0.25f);
+                        Wall(cut, low, bw * 0.5f, -highSide * bw * 0.25f);
+                        int bars = Random.Range(1, 4);
+                        for (int r = 0; r < bars; r++)
+                            Rebar(On(low, -highSide * bw * Random.Range(0.08f, 0.42f)), Vector3.up,
+                                  Random.Range(0.35f, 1f));
                     }
 
                     switch (bays[i])
                     {
                         case Bay.Solid:
-                            Wall(0f, top);
+                            Topped(0f, top);
                             break;
 
                         case Bay.Door:
                             // Half keep a lintel; the rest are blown open to the top.
-                            if (Random.value < 0.5f && top > 2.9f) Wall(2.4f, top);
+                            if (Random.value < 0.5f && top > 2.9f) Topped(2.4f, top);
                             break;
 
                         case Bay.Window:
@@ -287,9 +316,9 @@ namespace CombatPrep.Core
                             if (top > RuinStorey + 2.3f)
                             {
                                 Wall(2.25f, RuinStorey + 1f);
-                                Wall(RuinStorey + 2.1f, top);
+                                Topped(RuinStorey + 2.1f, top);
                             }
-                            else Wall(2.25f, top);
+                            else Topped(2.25f, top);
                             break;
 
                         case Bay.Blown:
@@ -321,6 +350,15 @@ namespace CombatPrep.Core
                 float z0 = innerD * 0.5f - len, z1 = innerD * 0.5f + bed;
                 Piece("Floor", At((x0 + x1) * 0.5f, RuinStorey + 0.14f, (z0 + z1) * 0.5f),
                       new Vector3(x1 - x0, 0.28f, z1 - z0));
+
+                // Where it broke off, the bars hang out of the edge.
+                int bars = Random.Range(2, 5);
+                for (int r = 0; r < bars; r++)
+                {
+                    var droop = Quaternion.Euler(Random.Range(10f, 40f), Random.Range(-15f, 15f), 0f) * Vector3.back;
+                    Rebar(At(Mathf.Lerp(x0, x1, Random.Range(0.1f, 0.9f)), RuinStorey + 0.1f, z0),
+                          new Vector3(droop.x * mirror, droop.y, droop.z), Random.Range(0.3f, 0.9f));
+                }
             }
 
             // Debris heaped in the back corners, under the floor.
@@ -339,10 +377,11 @@ namespace CombatPrep.Core
             // by the side wall, burning. A building ablaze burns in the other front corner too,
             // and sends up a column of smoke; the rest only smoulder. ---
             float frontZ = -innerD * 0.5f;
-            BurningHeap(At(innerW * 0.5f - 0.95f, 0f, frontZ + 0.85f), 1.5f, ablaze ? 2f : 1.1f, ablaze ? 16f : 10f, ablaze);
-            if (ablaze) BurningHeap(At(-innerW * 0.5f + 0.75f, 0f, frontZ + 0.75f), 1f, 1.1f, 9f, false);
+            BurningHeap(At(innerW * 0.5f - 0.95f, 0f, frontZ + 0.85f), 1.5f, ablaze ? 2f : 1.1f, ablaze ? 16f : 10f,
+                        ablaze, shadows: true);
+            if (ablaze) BurningHeap(At(-innerW * 0.5f + 0.75f, 0f, frontZ + 0.75f), 1f, 1.1f, 9f, false, shadows: false);
 
-            void BurningHeap(Vector3 at, float across, float fire, float light, bool column)
+            void BurningHeap(Vector3 at, float across, float fire, float light, bool column, bool shadows)
             {
                 for (int k = 0; k < 3; k++)
                 {
@@ -353,7 +392,7 @@ namespace CombatPrep.Core
                 var box = Prim.Box(b, "HeapCollider", at + Vector3.up * 0.25f, new Vector3(across, 0.5f, across),
                                    Color.white, 0f, 0.3f, collider: true);
                 box.GetComponent<MeshRenderer>().enabled = false;
-                QueueFire(b, b.position + at + Vector3.up * 0.45f, fire, light, column);
+                QueueFire(b, b.position + at + Vector3.up * 0.45f, fire, light, column, shadows);
             }
         }
 
@@ -442,6 +481,7 @@ namespace CombatPrep.Core
                 if (!FindSpot(3f, 27f, 4f, 90f, 2.2f, out var p)) continue;
                 var pos = new Vector3(p.x, 0f, p.y);
                 float radius = Random.Range(1.8f, 2.8f);
+                CraterSpots.Add((p, radius));
 
                 Prim.Quad(t, "Crater", pos + Vector3.up * 0.012f, new Vector2(radius * 2.4f, radius * 2.4f),
                           _scorchMats[i % _scorchMats.Length], new Vector3(90f, Random.Range(0f, 360f), 0f));
@@ -529,16 +569,19 @@ namespace CombatPrep.Core
 
         // --- fires, lit after the seeded pass (see Build) ---
 
-        static readonly System.Collections.Generic.List<(Transform parent, Vector3 pos, float scale, float range, bool column)>
-            PendingFires = new();
+        static readonly System.Collections.Generic.List<(Transform parent, Vector3 pos, float scale, float range,
+                                                         bool column, bool shadows)> PendingFires = new();
 
-        static void QueueFire(Transform parent, Vector3 pos, float scale, float range, bool column)
-            => PendingFires.Add((parent, pos, scale, range, column));
+        static void QueueFire(Transform parent, Vector3 pos, float scale, float range, bool column, bool shadows = false)
+        {
+            PendingFires.Add((parent, pos, scale, range, column, shadows));
+            FireSpots.Add(new Vector2(pos.x, pos.z));     // the ground is scorched round it
+        }
 
         static void LightFires()
         {
             foreach (var f in PendingFires)
-                if (f.parent != null) FireFx.Create(f.parent, f.pos, f.scale, f.range, f.column);
+                if (f.parent != null) FireFx.Create(f.parent, f.pos, f.scale, f.range, f.column, f.shadows);
             PendingFires.Clear();
         }
 
@@ -575,7 +618,7 @@ namespace CombatPrep.Core
                 light.type = LightType.Point;
                 light.color = new Color(1f, 0.74f, 0.46f);
                 light.range = 9f;
-                light.intensity = 2.4f;
+                light.intensity = 3.4f;
                 light.shadows = LightShadows.None;
 
                 if (i == 1) lightGo.AddComponent<LightFlicker>();

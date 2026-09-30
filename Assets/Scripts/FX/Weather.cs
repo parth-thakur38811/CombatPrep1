@@ -41,6 +41,12 @@ namespace CombatPrep.FX
         float _cover;            // 0 open sky .. 1 under a roof, eased
         float _nextCoverCheck;
 
+        /// <summary>
+        /// The rain's own layer (Unity's TransparentFX). Cameras draw it; reflection probes leave
+        /// it out, since the downpour moves with the camera and would freeze into every reflection.
+        /// </summary>
+        public const int CameraOnlyLayer = 1;
+
         /// <summary>What rain lands on: world geometry, never players, debris or the invisible walls.</summary>
         public static int WorldMask => ~((1 << PlayerRigBuilder.PlayerLayer) | (1 << PlayerRigBuilder.RemotePlayerLayer)
                                   | (1 << FxSystem.DebrisLayer) | (1 << RangeBuilder.BoundaryLayer)
@@ -62,6 +68,7 @@ namespace CombatPrep.FX
             var go = prefab != null ? Instantiate(prefab) : FxRecipes.Rain(DropsPerSecond, Area);
             go.name = "Rain";
             go.transform.SetParent(transform, false);
+            foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = CameraOnlyLayer;
             _rain = go.GetComponent<ParticleSystem>();
 
             // Layers are the code's to define, so the drops always land on the current world.

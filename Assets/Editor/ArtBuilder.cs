@@ -107,12 +107,26 @@ namespace CombatPrep.EditorTools
         const string Generated = Root + "/Generated";
         const string Materials = Root + "/Materials";
         public const string LibraryPath = Root + "/Resources/ArtLibrary.asset";
-        const string SkyPath = Root + "/Sky/overcast_soil_puresky_2k.hdr";
+        const string SkyDir = Root + "/Sky";
+        const string SkyName = "overcast_soil_puresky";
         const string WeaponAudio = Root + "/Audio/Weapons";
 
         /// <summary>Bump to force every machine to rebuild after changing this file.</summary>
-        const int Version = 8;
-        const int MaskSize = 512;
+        const int Version = 10;
+        /// <summary>Largest wet mask made; smaller sources keep their own size.</summary>
+        const int MaskSize = 2048;
+
+        /// <summary>
+        /// Poly Haven names files by resolution (_1k, _2k, _4k, _8k). The builder takes the largest
+        /// set present, so dropping in a sharper download is all an upgrade needs.
+        /// </summary>
+        static readonly string[] Resolutions = { "8k", "4k", "2k", "1k" };
+
+        static string BestRes(System.Func<string, bool> complete, string fallback)
+        {
+            foreach (var r in Resolutions) if (complete(r)) return r;
+            return fallback;
+        }
 
         public static bool IsArt(string path) => path.StartsWith(Root + "/");
 
@@ -156,7 +170,7 @@ namespace CombatPrep.EditorTools
         static readonly SurfaceSpec[] Surfaces =
         {
             S("ground",      "brown_mud_02",           "2k", 2.2f,  0.45f, Grey(0.85f)),
-            S("berm",        "burned_ground_01",       "1k", 2.5f,  0.35f, Grey(0.90f)),
+            S("berm",        "burned_ground_01",       "1k", 2.5f,  0.12f, Grey(0.55f)),   // pale ash, darkened to soil
             S("floor",       "damaged_concrete_floor", "1k", 4.5f,  0.40f, Grey(0.85f)),
             S("concrete",    "concrete_layers_02",     "1k", 2.0f,  0.30f, Grey(0.66f)),
             S("rubble",      "concrete_debris",        "1k", 2.0f,  0.30f, Grey(0.78f)),
@@ -196,13 +210,14 @@ namespace CombatPrep.EditorTools
                 ti.textureShape = TextureImporterShape.TextureCube;
                 ti.generateCubemap = TextureImporterGenerateCubemap.Cylindrical;   // lat-long panorama
                 ti.textureCompression = TextureImporterCompression.CompressedHQ;
-                ti.maxTextureSize = 2048;
+                ti.maxTextureSize = 4096;
                 ti.wrapMode = TextureWrapMode.Clamp;
                 ti.anisoLevel = 0;
                 return;
             }
 
             ti.textureShape = TextureImporterShape.Texture2D;
+            ti.maxTextureSize = 4096;     // a 4K download stays 4K
             ti.wrapMode = TextureWrapMode.Repeat;
             ti.anisoLevel = 8;   // ground seen at a grazing angle stays sharp
             ti.textureCompression = TextureImporterCompression.Compressed;
@@ -404,7 +419,8 @@ namespace CombatPrep.EditorTools
 
             // 4. Sky. Measured from the file: ~1.8 overhead, ~0.75 near the horizon - scaled
             // down hard, because a storm sits far darker than the overcast day it was shot on.
-            lib.Sky = AssetDatabase.LoadAssetAtPath<Texture>(SkyPath);
+            lib.Sky = AssetDatabase.LoadAssetAtPath<Texture>(
+                $"{SkyDir}/{SkyName}_{BestRes(r => File.Exists($"{SkyDir}/{SkyName}_{r}.hdr"), "2k")}.hdr");
             lib.SkyExposure = 0.14f;
 
             // 5. The online soldier, and its animations if the Mixamo clips are in.
@@ -415,6 +431,10 @@ namespace CombatPrep.EditorTools
 
             // 7. The effect prefabs - made from their recipes only where missing, so edits stick.
             lib.Fx = FxPrefabBuilder.Build();
+
+            // 8. The ground's terrain material. Kept as an asset the library points at, so a build
+            // carries the terrain shader and its variants (the terrain itself is made at runtime).
+            lib.TerrainMaterial = TerrainMaterial();
 
             lib.SourceStamp = ComputeStamp();
             EditorUtility.SetDirty(lib);
@@ -432,9 +452,12 @@ namespace CombatPrep.EditorTools
             System.Collections.Generic.Dictionary<string, (Texture2D mask, Color avg)> built)
         {
             string dir = $"{Root}/Textures/{s.Source}";
-            string diff = $"{dir}/{s.Source}_diff_{s.Res}.jpg";
-            string nor = $"{dir}/{s.Source}_nor_gl_{s.Res}.jpg";
-            string arm = $"{dir}/{s.Source}_arm_{s.Res}.jpg";
+            string res = BestRes(r => File.Exists($"{dir}/{s.Source}_diff_{r}.jpg")
+                                      && File.Exists($"{dir}/{s.Source}_nor_gl_{r}.jpg")
+                                      && File.Exists($"{dir}/{s.Source}_arm_{r}.jpg"), s.Res);
+            string diff = $"{dir}/{s.Source}_diff_{res}.jpg";
+            string nor = $"{dir}/{s.Source}_nor_gl_{res}.jpg";
+            string arm = $"{dir}/{s.Source}_arm_{res}.jpg";
             if (!File.Exists(diff) || !File.Exists(nor) || !File.Exists(arm))
             {
                 Debug.LogWarning($"[Art] {s.Name}: source files missing in {dir} - using the procedural look.");
@@ -463,10 +486,13 @@ namespace CombatPrep.EditorTools
         static ArtLibrary.Prop BuildProp(PropSpec p)
         {
             string dir = $"{Root}/Props/{p.Folder}";
-            string fbx = $"{dir}/{p.Folder}_1k.fbx";
-            string diff = $"{dir}/{p.TexPrefix}_diff_1k.jpg";
-            string nor = $"{dir}/{p.TexPrefix}_nor_gl_1k.jpg";
-            string arm = $"{dir}/{p.TexPrefix}_arm_1k.jpg";
+            string res = BestRes(r => File.Exists($"{dir}/{p.TexPrefix}_diff_{r}.jpg")
+                                      && File.Exists($"{dir}/{p.TexPrefix}_nor_gl_{r}.jpg")
+                                      && File.Exists($"{dir}/{p.TexPrefix}_arm_{r}.jpg"), "1k");
+            string fbx = $"{dir}/{p.Folder}_{BestRes(r => File.Exists($"{dir}/{p.Folder}_{r}.fbx"), "1k")}.fbx";
+            string diff = $"{dir}/{p.TexPrefix}_diff_{res}.jpg";
+            string nor = $"{dir}/{p.TexPrefix}_nor_gl_{res}.jpg";
+            string arm = $"{dir}/{p.TexPrefix}_arm_{res}.jpg";
             if (!File.Exists(fbx) || !File.Exists(diff) || !File.Exists(nor) || !File.Exists(arm))
             {
                 Debug.LogWarning($"[Art] {p.Name}: source files missing in {dir} - using the primitive prop.");
@@ -574,6 +600,25 @@ namespace CombatPrep.EditorTools
         }
 
         // ---------------------------------------------------------------- materials
+
+        static Material TerrainMaterial()
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Terrain/Lit");
+            if (shader == null) return null;
+            string path = $"{Materials}/GroundTerrain.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.shaderKeywords = System.Array.Empty<string>();
+            mat.EnableKeyword("_NORMALMAP");       // layers carry normal maps
+            mat.EnableKeyword("_MASKMAP");         // and the wet masks (metal, occlusion, smoothness)
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
 
         static Material LitMaterial(string path, Texture2D albedo, Texture2D normal, Texture2D mask,
                                     Color tint, Vector2 tiling)

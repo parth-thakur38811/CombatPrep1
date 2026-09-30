@@ -126,6 +126,10 @@ namespace CombatPrep.Core
             var m = Glass(tint, smoothness, metallic);
             m.name = "Gen_Decal";
             m.SetTexture("_BaseMap", tex);
+            // Glass keeps its reflection where it's clear; a decal must not, or a puddle shows the
+            // sky's reflection across its whole square. (URP re-derives the blend from this flag
+            // when the material is saved as an asset, as the FX prefabs' are.)
+            m.SetFloat("_BlendModePreserveSpecular", 0f);
             m.renderQueue = (int)RenderQueue.Transparent - 50;   // under particles and glass
             return m;
         }

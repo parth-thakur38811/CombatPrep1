@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 using CombatPrep.Audio;
 using CombatPrep.FX;
 using CombatPrep.Player;
@@ -35,6 +36,12 @@ namespace CombatPrep.Core
 
         /// <summary>Other players' avatars live here, so local shots can hit them.</summary>
         public const int RemotePlayerLayer = 11;
+
+        /// <summary>
+        /// Rendering layer (bit) for what's in your hands: lit by its own fill light as well as
+        /// the world's, the way a film lights an actor's face.
+        /// </summary>
+        public const uint ViewmodelRenderingLayer = 1u << 1;
 
         /// <summary>
         /// What a shot can hit: everything except yourself, spent debris, and the invisible
@@ -81,6 +88,8 @@ namespace CombatPrep.Core
 
             if (ListenerRig.I != null) ListenerRig.I.Follow = camGo.transform;
 
+            AddViewmodelLight(cam.transform);
+
             var look = root.AddComponent<PlayerLook>();
             look.Body = root.transform;
             look.Cam = cam;
@@ -90,7 +99,34 @@ namespace CombatPrep.Core
                 Root = root, Cam = cam, Look = look, Motor = motor, Shake = shake
             };
             BuildWeapons(ref rig, entry, skin);
+            FirstPersonArms.Build(cam.transform, rig.Loadout);    // hands on the gun, if the soldier art is in
             return rig;
+        }
+
+        /// <summary>
+        /// A soft light just above and behind the eye that reaches only the gun and grenade in
+        /// hand (their own rendering layer). At dusk the world light leaves a dark gun reading as
+        /// a black cut-out; this gives its shape back without lighting anything else.
+        /// </summary>
+        static void AddViewmodelLight(Transform cam)
+        {
+            var go = new GameObject("ViewmodelLight");
+            go.transform.SetParent(cam, false);
+            go.transform.localPosition = new Vector3(0.12f, 0.22f, -0.12f);
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = new Color(0.78f, 0.84f, 0.95f);
+            light.intensity = 0.55f;
+            light.range = 1.4f;
+            light.shadows = LightShadows.None;
+            light.GetUniversalAdditionalLightData().renderingLayers = ViewmodelRenderingLayer;
+        }
+
+        /// <summary>Puts everything under <paramref name="root"/> on the viewmodel's rendering layer too.</summary>
+        public static void MarkViewmodel(Transform root)
+        {
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                r.renderingLayerMask |= ViewmodelRenderingLayer;
         }
 
         /// <summary>
@@ -134,6 +170,7 @@ namespace CombatPrep.Core
 
             var model = WeaponModelBuilder.Build(holder, entry.Shape);
             SkinApplier.Apply(model, skin);
+            MarkViewmodel(model.Root);
             anim.Init(entry.Def, model, rig.Motor);
 
             var weapon = holder.gameObject.AddComponent<Weapon>();

@@ -142,7 +142,7 @@ namespace CombatPrep.FX
             main.gravityModifier = -0.01f;
             Cone(dust, 32f, 0.02f);
             Grow(dust, 0.5f, 2.4f);
-            Puff(dust, 0.6f);
+            Puff(dust, 0.42f);
             Drag(dust, 1.4f);
 
             var chips = Child(root.transform, "Chips", 32u, Mat.Particle(Tex.SoftDot(16, 12f), false, false));
@@ -224,7 +224,7 @@ namespace CombatPrep.FX
             main.gravityModifier = -0.04f;
             Sphere(smoke, 0.5f, hemisphere: true);
             Grow(smoke, 0.7f, 2.6f);
-            Puff(smoke, 0.8f);
+            Puff(smoke, 0.62f);
             Drag(smoke, 0.9f);
             Wind(smoke, 0.8f);
 
@@ -462,7 +462,8 @@ namespace CombatPrep.FX
             main.startSpeed = column ? new ParticleSystem.MinMaxCurve(2.6f, 3.6f) : new ParticleSystem.MinMaxCurve(0.8f, 1.5f);
             main.startSize = column ? new ParticleSystem.MinMaxCurve(5f, 8f) : new ParticleSystem.MinMaxCurve(0.8f, 1.4f);
             main.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            main.startColor = column ? new Color(0.07f, 0.07f, 0.075f, 0.62f) : new Color(0.10f, 0.10f, 0.10f, 0.45f);
+            // The puff texture is solid at its heart, so the column stays thin enough to see a shape in.
+            main.startColor = column ? new Color(0.12f, 0.12f, 0.125f, 0.22f) : new Color(0.12f, 0.12f, 0.12f, 0.28f);
             main.maxParticles = column ? 240 : 60;
             // The column is sized for the skyline, not for the fire under it.
             if (column) main.scalingMode = ParticleSystemScalingMode.Local;

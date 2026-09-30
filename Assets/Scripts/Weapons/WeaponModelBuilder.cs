@@ -41,6 +41,11 @@ namespace CombatPrep.Weapons
         public Transform SightPoint;  // bore centre; the ADS pose is solved from this
         public Transform Grip;        // firing hand, for third-person soldiers
         public Transform Support;     // other hand
+        /// <summary>
+        /// Where your own off hand holds it in first person: the support point, or on a pistol,
+        /// cupped under the grip hand (its "support" is out at the muzzle for third person).
+        /// </summary>
+        public Transform OffHand;
         public float SightDistance = 0.22f;
         /// <summary>
         /// The optic's reticle disc, if it has one. Built switched off - only the first-person
@@ -182,6 +187,9 @@ namespace CombatPrep.Weapons
             else if (s.Foregrip) support = new Vector3(0f, -s.ReceiverH * 0.85f, halfRec + s.HandguardLen * 0.68f);
             else support = new Vector3(0f, -s.ReceiverH * 0.5f, halfRec + s.HandguardLen * 0.45f);
             model.Support = Prim.Empty(root, "SupportPoint", support);
+            model.OffHand = s.HandguardLen <= 0.01f
+                ? Prim.Empty(root, "OffHandPoint", new Vector3(-0.012f, -s.ReceiverH * 1.25f, -halfRec * 0.25f))
+                : model.Support;
 
             return model;
         }

@@ -24,8 +24,10 @@ namespace CombatPrep.FX
         /// spot. Seeds come from the position, not from Random: fires are lit during the arena
         /// build, which every machine must replay identically.
         /// </summary>
+        /// <param name="shadows">Its light casts shadows - flames throwing the walls round them
+        /// across the ground. Kept for the big fires: each costs six shadow-map renders a frame.</param>
         public static FireFx Create(Transform parent, Vector3 worldPos, float scale, float lightRange,
-                                    bool column = false)
+                                    bool column = false, bool shadows = false)
         {
             var lib = ArtLibrary.I != null ? ArtLibrary.I.Fx : null;
             var prefab = lib == null ? null : column ? lib.BurningWreck : lib.Fire;
@@ -57,8 +59,21 @@ namespace CombatPrep.FX
                 // Keep the light just above the flames whatever the scale.
                 fire.Light.transform.localPosition = new Vector3(0f, 0.45f + 0.3f / Mathf.Max(0.1f, scale), 0f);
                 fire._baseIntensity = fire.Light.intensity;
+                VolumetricLight.Register(fire.Light);     // glows in the haze around it
+
+                if (shadows)
+                {
+                    fire.Light.shadows = LightShadows.Soft;
+                    fire.Light.shadowStrength = 0.9f;
+                    fire.Light.shadowNearPlane = 0.1f;   // resolution: the URP asset's "high" tier, 512
+                }
             }
             return fire;
+        }
+
+        void OnDestroy()
+        {
+            if (Light != null) VolumetricLight.Unregister(Light);
         }
 
         void Start()

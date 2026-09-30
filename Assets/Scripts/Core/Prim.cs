@@ -9,10 +9,25 @@ namespace CombatPrep.Core
     /// </summary>
     public static class Prim
     {
+        /// <summary>
+        /// A box of this size with its edges bevelled (MeshGen.BevelBox) rather than Unity's
+        /// razor-edged cube, so it catches the light along its edges. The transform stays at unit
+        /// scale; the mesh is the size.
+        /// </summary>
         public static Transform Box(Transform parent, string name, Vector3 pos, Vector3 size,
                                     Color color, float metallic = 0f, float smoothness = 0.3f,
                                     bool collider = false, Vector3 euler = default)
-            => Make(PrimitiveType.Cube, parent, name, pos, size, euler, color, metallic, smoothness, collider);
+        {
+            var go = new GameObject(name);
+            var t = go.transform;
+            t.SetParent(parent, false);
+            t.localPosition = pos;
+            t.localEulerAngles = euler;
+            go.AddComponent<MeshFilter>().sharedMesh = MeshGen.BevelBox(size, MeshGen.AutoBevel(size), 0f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = Mat.Get(color, metallic, smoothness);
+            if (collider) go.AddComponent<BoxCollider>();   // sizes itself to the mesh
+            return t;
+        }
 
         /// <summary>Cylinder along local Z (Unity's cylinder is Y-up and 2 units tall, so we correct both).</summary>
         public static Transform Tube(Transform parent, string name, Vector3 pos, float diameter, float length,
@@ -32,6 +47,23 @@ namespace CombatPrep.Core
         public static Transform Ball(Transform parent, string name, Vector3 pos, float diameter,
                                      Color color, float metallic = 0f, float smoothness = 0.3f, bool collider = false)
             => Make(PrimitiveType.Sphere, parent, name, pos, Vector3.one * diameter, default, color, metallic, smoothness, collider);
+
+        /// <summary>
+        /// A sandbag (MeshGen.Sack): sized, laid and UV'd like the capsule it replaced, so the
+        /// same rotation lays it along a wall and the same burlap tiling fits it.
+        /// </summary>
+        public static Transform Sack(Transform parent, string name, Vector3 pos, float diameter, float length,
+                                     Color color, Vector3 euler = default)
+        {
+            var go = new GameObject(name);
+            var t = go.transform;
+            t.SetParent(parent, false);
+            t.localPosition = pos;
+            t.localEulerAngles = euler;
+            go.AddComponent<MeshFilter>().sharedMesh = MeshGen.Sack(diameter * 0.4f, diameter * 0.5f, length * 0.5f);
+            go.AddComponent<MeshRenderer>().sharedMaterial = Mat.Get(color, 0f, 0.3f);
+            return t;
+        }
 
         public static Transform Capsule(Transform parent, string name, Vector3 pos, float diameter, float height,
                                         Color color, bool collider = false, Vector3 euler = default)

@@ -17,56 +17,207 @@ namespace CombatPrep.Core
         /// fine for flat colour, very wrong for a photographed surface. Cached by size, since
         /// most boxes in the level repeat.
         /// </summary>
-        public static Mesh Box(Vector3 size, float tileMeters)
+        public static Mesh Box(Vector3 size, float tileMeters) => BevelBox(size, AutoBevel(size), tileMeters);
+
+        static readonly System.Collections.Generic.Dictionary<(int, int, int), Mesh> SackCache = new();
+
+        /// <summary>
+        /// A filled sandbag: a stuffed pillow rather than a capsule - squarish along its length,
+        /// rounded across it, flattened by the weight on top and pinched in at the tied ends.
+        /// Laid out like Unity's capsule (length along Y, UVs wrapping round it) so it drops in
+        /// where one was, with the same rotation and the same burlap tiling.
+        /// </summary>
+        /// <param name="halfThick">Half its height once lying down (local X).</param>
+        /// <param name="halfDepth">Half its depth (local Z).</param>
+        /// <param name="halfLength">Half its length (local Y).</param>
+        public static Mesh Sack(float halfThick, float halfDepth, float halfLength)
+        {
+            var key = (Mathf.RoundToInt(halfThick * 1000f), Mathf.RoundToInt(halfDepth * 1000f),
+                       Mathf.RoundToInt(halfLength * 1000f));
+            if (SackCache.TryGetValue(key, out var cached) && cached != null) return cached;
+
+            const int rings = 14, segments = 22;
+            // Superellipsoid exponents: squarish along the bag, rounder across it.
+            const float alongPower = 0.35f, acrossPower = 0.8f;
+            static float Pow(float w, float e) => Mathf.Sign(w) * Mathf.Pow(Mathf.Abs(w), e);
+
+            var verts = new Vector3[(rings + 1) * (segments + 1)];
+            var uvs = new Vector2[verts.Length];
+            for (int r = 0; r <= rings; r++)
+            {
+                float phi = Mathf.Lerp(-Mathf.PI * 0.5f, Mathf.PI * 0.5f, r / (float)rings);
+                float along = Pow(Mathf.Sin(phi), alongPower);
+                float across = Pow(Mathf.Cos(phi), alongPower);
+                // Gathered in at the tied ends.
+                float pinch = 1f - 0.3f * Mathf.Pow(Mathf.Abs(Mathf.Sin(phi)), 8f);
+                for (int s = 0; s <= segments; s++)
+                {
+                    float theta = Mathf.Lerp(-Mathf.PI, Mathf.PI, s / (float)segments);
+                    float x = halfThick * across * Pow(Mathf.Cos(theta), acrossPower) * pinch;
+                    float z = halfDepth * across * Pow(Mathf.Sin(theta), acrossPower) * pinch;
+                    int i = r * (segments + 1) + s;
+                    verts[i] = new Vector3(x, halfLength * along, z);
+                    uvs[i] = new Vector2(s / (float)segments, r / (float)rings);
+                }
+            }
+
+            var tris = new int[rings * segments * 6];
+            int t = 0;
+            for (int r = 0; r < rings; r++)
+            for (int s = 0; s < segments; s++)
+            {
+                int a = r * (segments + 1) + s, b = a + 1, c = a + segments + 1, d = c + 1;
+                tris[t++] = a; tris[t++] = c; tris[t++] = b;
+                tris[t++] = b; tris[t++] = c; tris[t++] = d;
+            }
+
+            // Face outward: check one quad on the bag's side against the way out.
+            int probe = (rings / 2) * (segments + 1) + segments / 4;
+            var n = Vector3.Cross(verts[probe + segments + 1] - verts[probe], verts[probe + 1] - verts[probe]);
+            if (Vector3.Dot(n, verts[probe]) < 0f)
+                for (int i = 0; i < tris.Length; i += 3) (tris[i + 1], tris[i + 2]) = (tris[i + 2], tris[i + 1]);
+
+            var mesh = new Mesh { name = "Sack" };
+            mesh.vertices = verts;
+            mesh.uv = uvs;
+            mesh.triangles = tris;
+            mesh.RecalculateNormals();
+
+            // Weld the shading where the grid wraps round and closes at the ends.
+            var normals = mesh.normals;
+            for (int r = 0; r <= rings; r++)
+            {
+                int first = r * (segments + 1), last = first + segments;
+                var avg = (normals[first] + normals[last]).normalized;
+                normals[first] = normals[last] = avg;
+            }
+            foreach (int r in new[] { 0, rings })
+            {
+                var sum = Vector3.zero;
+                for (int s = 0; s <= segments; s++) sum += normals[r * (segments + 1) + s];
+                for (int s = 0; s <= segments; s++) normals[r * (segments + 1) + s] = sum.normalized;
+            }
+            mesh.normals = normals;
+            mesh.RecalculateTangents();
+            mesh.RecalculateBounds();
+            SackCache[key] = mesh;
+            return mesh;
+        }
+
+        /// <summary>
+        /// How much to take off a box's edges: a few millimetres on a gun part, a few centimetres
+        /// on a wall - enough to catch the light, never enough to look rounded off.
+        /// </summary>
+        public static float AutoBevel(Vector3 size)
+            => Mathf.Min(0.035f, Mathf.Min(size.x, Mathf.Min(size.y, size.z)) * 0.08f);
+
+        // Each face: normal, and the two in-plane axes its UVs run along.
+        static readonly (Vector3 n, Vector3 u, Vector3 v)[] BoxFaces =
+        {
+            (Vector3.forward, Vector3.left, Vector3.up),
+            (Vector3.back, Vector3.right, Vector3.up),
+            (Vector3.right, Vector3.forward, Vector3.up),
+            (Vector3.left, Vector3.back, Vector3.up),
+            (Vector3.up, Vector3.right, Vector3.forward),
+            (Vector3.down, Vector3.right, Vector3.back),
+        };
+
+        /// <summary>
+        /// A box with every edge chamfered: a narrow 45-degree face along each edge and a small
+        /// triangle at each corner. The chamfers carry the normals of the faces either side, so
+        /// an edge shades like a rounded one and catches a line of light - most of what tells a
+        /// cast or machined thing from a default cube.
+        /// </summary>
+        /// <param name="tileMeters">UVs in metres over this, as <see cref="Box"/>; 0 for 0-1 across each face.</param>
+        public static Mesh BevelBox(Vector3 size, float bevel, float tileMeters)
         {
             var key = (Mathf.RoundToInt(size.x * 1000f), Mathf.RoundToInt(size.y * 1000f),
-                       Mathf.RoundToInt(size.z * 1000f), Mathf.RoundToInt(tileMeters * 1000f));
+                       Mathf.RoundToInt(size.z * 1000f), Mathf.RoundToInt(tileMeters * 1000f) * 4096
+                                                          + Mathf.RoundToInt(bevel * 10000f));
             if (BoxCache.TryGetValue(key, out var cached) && cached != null) return cached;
 
             var h = size * 0.5f;
+            float b = Mathf.Clamp(bevel, 0f, Mathf.Min(h.x, Mathf.Min(h.y, h.z)) * 0.9f);
             float t = 1f / Mathf.Max(0.01f, tileMeters);
-            var verts = new Vector3[24];
-            var normals = new Vector3[24];
-            var uvs = new Vector2[24];
-            var tris = new int[36];
 
-            // Each face: normal, and the two in-plane axes the UVs run along.
-            var faces = new (Vector3 n, Vector3 u, Vector3 v)[]
-            {
-                (Vector3.forward, Vector3.left, Vector3.up),
-                (Vector3.back, Vector3.right, Vector3.up),
-                (Vector3.right, Vector3.forward, Vector3.up),
-                (Vector3.left, Vector3.back, Vector3.up),
-                (Vector3.up, Vector3.right, Vector3.forward),
-                (Vector3.down, Vector3.right, Vector3.back),
-            };
+            var verts = new System.Collections.Generic.List<Vector3>(96);
+            var normals = new System.Collections.Generic.List<Vector3>(96);
+            var uvs = new System.Collections.Generic.List<Vector2>(96);
+            var tris = new System.Collections.Generic.List<int>(132);
 
-            for (int f = 0; f < 6; f++)
+            int Add(Vector3 p, Vector3 n)
             {
-                var (n, u, v) = faces[f];
-                float du = Mathf.Abs(Vector3.Dot(u, size)) * 0.5f;
-                float dv = Mathf.Abs(Vector3.Dot(v, size)) * 0.5f;
-                var centre = Vector3.Scale(n, h);
-                int b = f * 4;
-                for (int k = 0; k < 4; k++)
-                {
-                    float su = (k == 1 || k == 2) ? 1f : -1f;
-                    float sv = (k >= 2) ? 1f : -1f;
-                    verts[b + k] = centre + u * (su * du) + v * (sv * dv);
-                    normals[b + k] = n;
-                    uvs[b + k] = new Vector2((su * du + du) * t, (sv * dv + dv) * t);
-                }
-                // Clockwise seen from outside: 0-2-1, 0-3-2 with this corner order.
-                int i = f * 6;
-                tris[i] = b; tris[i + 1] = b + 2; tris[i + 2] = b + 1;
-                tris[i + 3] = b; tris[i + 4] = b + 3; tris[i + 5] = b + 2;
+                // UVs from the face this normal belongs to, so a chamfer carries on its texture.
+                int f = 0;
+                for (int i = 0; i < 6; i++) if (Vector3.Dot(BoxFaces[i].n, n) > 0.5f) { f = i; break; }
+                var (_, u, v) = BoxFaces[f];
+                float du = Mathf.Abs(Vector3.Dot(u, size)) * 0.5f, dv = Mathf.Abs(Vector3.Dot(v, size)) * 0.5f;
+                float x = Vector3.Dot(p, u) + du, y = Vector3.Dot(p, v) + dv;
+                uvs.Add(tileMeters > 0f ? new Vector2(x * t, y * t)
+                                        : new Vector2(x / Mathf.Max(1e-5f, du * 2f), y / Mathf.Max(1e-5f, dv * 2f)));
+                verts.Add(p);
+                normals.Add(n);
+                return verts.Count - 1;
             }
 
-            var mesh = new Mesh { name = "WorldBox" };
-            mesh.vertices = verts;
-            mesh.normals = normals;
-            mesh.uv = uvs;
-            mesh.triangles = tris;
+            // Wound so the face shows from outside: its cross product points the way it faces.
+            void Tri(int i0, int i1, int i2, Vector3 outward)
+            {
+                if (Vector3.Dot(Vector3.Cross(verts[i1] - verts[i0], verts[i2] - verts[i0]), outward) < 0f)
+                    (i1, i2) = (i2, i1);
+                tris.Add(i0); tris.Add(i1); tris.Add(i2);
+            }
+
+            void Quad(int i0, int i1, int i2, int i3, Vector3 outward)
+            {
+                Tri(i0, i1, i2, outward);
+                Tri(i0, i2, i3, outward);
+            }
+
+            Vector3 Axis(int i) => i == 0 ? Vector3.right : i == 1 ? Vector3.up : Vector3.forward;
+
+            // Faces, inset by the bevel.
+            for (int i = 0; i < 3; i++)
+            for (int s = -1; s <= 1; s += 2)
+            {
+                int j = (i + 1) % 3, k = (i + 2) % 3;
+                Vector3 n = Axis(i) * s, c = n * h[i];
+                Vector3 ej = Axis(j) * (h[j] - b), ek = Axis(k) * (h[k] - b);
+                Quad(Add(c - ej - ek, n), Add(c + ej - ek, n), Add(c + ej + ek, n), Add(c - ej + ek, n), n);
+            }
+
+            if (b > 1e-5f)
+            {
+                // Edge chamfers: face i's inset edge to face j's, along the third axis.
+                for (int i = 0; i < 3; i++)
+                for (int j = i + 1; j < 3; j++)
+                for (int si = -1; si <= 1; si += 2)
+                for (int sj = -1; sj <= 1; sj += 2)
+                {
+                    int k = 3 - i - j;
+                    Vector3 ni = Axis(i) * si, nj = Axis(j) * sj, ek = Axis(k) * (h[k] - b);
+                    Vector3 onI = ni * h[i] + nj * (h[j] - b), onJ = ni * (h[i] - b) + nj * h[j];
+                    Quad(Add(onI - ek, ni), Add(onI + ek, ni), Add(onJ + ek, nj), Add(onJ - ek, nj), ni + nj);
+                }
+
+                // Corner triangles, one vertex on each of the three faces meeting there.
+                for (int sx = -1; sx <= 1; sx += 2)
+                for (int sy = -1; sy <= 1; sy += 2)
+                for (int sz = -1; sz <= 1; sz += 2)
+                {
+                    var p = new Vector3(sx * (h.x - b), sy * (h.y - b), sz * (h.z - b));
+                    Tri(Add(new Vector3(sx * h.x, p.y, p.z), Vector3.right * sx),
+                        Add(new Vector3(p.x, sy * h.y, p.z), Vector3.up * sy),
+                        Add(new Vector3(p.x, p.y, sz * h.z), Vector3.forward * sz),
+                        new Vector3(sx, sy, sz));
+                }
+            }
+
+            var mesh = new Mesh { name = b > 0f ? "BevelBox" : "WorldBox" };
+            mesh.SetVertices(verts);
+            mesh.SetNormals(normals);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(tris, 0);
             mesh.RecalculateTangents();
             mesh.RecalculateBounds();
             BoxCache[key] = mesh;

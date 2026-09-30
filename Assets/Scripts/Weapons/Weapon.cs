@@ -45,6 +45,9 @@ namespace CombatPrep.Weapons
 
         public bool IsReloading => _reloadDoneAt > 0f;
 
+        /// <summary>The gun's model - where the hands go (FirstPersonArms).</summary>
+        public WeaponModel Model => _model;
+
         /// <summary>False while the gun is still being brought up after being taken out.</summary>
         public bool IsReady => Time.time >= _readyAt;
 
@@ -317,7 +320,9 @@ namespace CombatPrep.Weapons
             // Props carry their collider on a parent of the renderer.
             var r = hit.collider.GetComponent<Renderer>();
             if (r == null) r = hit.collider.GetComponentInChildren<Renderer>();
-            Color tint = SurfaceColors.For(r != null ? r.sharedMaterial : null, new Color(0.5f, 0.5f, 0.5f));
+            Color tint = SurfaceColors.For(r != null ? r.sharedMaterial : null,
+                                           hit.collider is TerrainCollider ? RangeBuilder.GroundImpactColor
+                                                                           : new Color(0.5f, 0.5f, 0.5f));
             FxSystem.I.Impact(hit.point, hit.normal, tint);
             return false;
         }

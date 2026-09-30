@@ -3,6 +3,7 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace CombatPrep.EditorTools
 {
@@ -106,6 +107,77 @@ namespace CombatPrep.EditorTools
                 m.SetVector("_SoftParticleFadeParams", new Vector4(0f, 1f / 0.8f, 0f, 0f));
                 m.EnableKeyword("_SOFTPARTICLES_ON");
             }
+        }
+
+        // ------------------------------------------------------------- volumetric light
+
+        const string RendererPath = "Assets/Settings/PC_Renderer.asset";
+        const string VolumetricFeature = "VolumetricLight";
+
+        /// <summary>
+        /// Puts the light-in-the-air pass (Shaders/VolumetricLight, driven by FX/VolumetricLight)
+        /// on the PC renderer as a URP full-screen pass, if it isn't there yet: after the opaque
+        /// scene, before transparents, reading depth. Runs by itself when scripts load.
+        /// </summary>
+        public static void EnsureVolumetricLight()
+        {
+            var data = AssetDatabase.LoadAssetAtPath<UniversalRendererData>(RendererPath);
+            var shader = Shader.Find("CombatPrep/VolumetricLight");
+            if (data == null || shader == null) return;
+
+            Directory.CreateDirectory(Dir);
+            string matPath = $"{Dir}/{VolumetricFeature}.mat";
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (mat == null)
+            {
+                mat = new Material(shader) { name = VolumetricFeature };
+                AssetDatabase.CreateAsset(mat, matPath);
+            }
+
+            foreach (var f in data.rendererFeatures)
+                if (f is FullScreenPassRendererFeature existing && existing.name == VolumetricFeature)
+                {
+                    if (existing.passMaterial != mat)
+                    {
+                        existing.passMaterial = mat;
+                        EditorUtility.SetDirty(data);
+                        AssetDatabase.SaveAssets();
+                    }
+                    return;
+                }
+
+            var feature = ScriptableObject.CreateInstance<FullScreenPassRendererFeature>();
+            feature.name = VolumetricFeature;
+            feature.injectionPoint = FullScreenPassRendererFeature.InjectionPoint.BeforeRenderingTransparents;
+            feature.fetchColorBuffer = false;     // the shader adds its light over the scene by blending
+            feature.requirements = ScriptableRenderPassInput.Depth;
+            feature.passMaterial = mat;
+            AssetDatabase.AddObjectToAsset(feature, data);
+
+            // Registered the way the renderer's inspector does it: the list, plus the map of
+            // local file ids URP uses to find the sub-asset again.
+            AssetDatabase.TryGetGUIDAndLocalFileIdentifier(feature, out string _, out long localId);
+            var so = new SerializedObject(data);
+            var list = so.FindProperty("m_RendererFeatures");
+            var map = so.FindProperty("m_RendererFeatureMap");
+            list.arraySize++;
+            list.GetArrayElementAtIndex(list.arraySize - 1).objectReferenceValue = feature;
+            map.arraySize++;
+            map.GetArrayElementAtIndex(map.arraySize - 1).longValue = localId;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorUtility.SetDirty(data);
+            AssetDatabase.SaveAssets();
+            Debug.Log("<b>CombatPrep</b>: added the volumetric light pass to " + RendererPath);
+        }
+
+        [InitializeOnLoad]
+        static class AutoSetup
+        {
+            static AutoSetup() => EditorApplication.delayCall += () =>
+            {
+                if (!EditorApplication.isPlayingOrWillChangePlaymode) EnsureVolumetricLight();
+            };
         }
 
         static Material Save(string name, string shaderName, Action<Material> configure)

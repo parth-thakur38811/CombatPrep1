@@ -61,6 +61,8 @@ namespace CombatPrep.Core
             Clutter(root);
             Warzone(root);      // after every gameplay prop - see RangeBuilder.Warzone.cs
             OnlineCover(root);  // built for everyone, shown only online - see RangeBuilder.Online.cs
+            Reflections(root);  // captured once the arena is burning - see RangeBuilder.Reflections.cs
+            PaintGround();      // once the craters and fires that scorch it are placed
 
             Random.state = prev;
 
@@ -75,8 +77,10 @@ namespace CombatPrep.Core
         static void Ground(Transform root)
         {
             // Sized off the arena so it always runs well past the berms and the backstop.
-            Prim.Surface(root, "Ground", new Vector3(0f, -0.5f, Length * 0.36f),
-                         new Vector3(Width + 140f, 1f, Length + 130f), Art.Ground, _ground, collider: true);
+            var centre = new Vector3(0f, -0.5f, Length * 0.36f);
+            var size = new Vector3(Width + 140f, 1f, Length + 130f);
+            if (!GroundTerrain(root, centre, size))    // see RangeBuilder.Ground.cs
+                Prim.Surface(root, "Ground", centre, size, Art.Ground, _ground, collider: true);
 
             // Concrete apron under the shooter, so the firing line reads as built.
             Prim.Surface(root, "Pad", new Vector3(0f, 0.012f, -1.5f), new Vector3(34f, 0.06f, 12f),
@@ -240,8 +244,12 @@ namespace CombatPrep.Core
 
             for (int d = 10; d <= 90; d += 10)
             {
-                Prim.Box(lanes, $"Mark{d}", new Vector3(0f, 0.02f, d),
-                         new Vector3(BoundHalfX * 2f - 8f, 0.03f, 0.12f),
+                // Painted across the range, but not through the floor of a ruin standing on it.
+                float half = BoundHalfX - 4f;
+                foreach (var site in ArenaRuinSites)
+                    if (Mathf.Abs(d - site.centre.y) < site.size.y * 0.5f + 1.2f)
+                        half = Mathf.Min(half, site.centre.x - site.size.x * 0.5f - 1.2f);
+                Prim.Box(lanes, $"Mark{d}", new Vector3(0f, 0.02f, d), new Vector3(half * 2f, 0.03f, 0.12f),
                          new Color(0.56f, 0.55f, 0.51f), 0f, 0.4f);
 
                 // Posts hug the boundary from the inside, so they stay reachable rather
@@ -501,8 +509,8 @@ namespace CombatPrep.Core
             // misses the ends - which is exactly where you could previously walk through
             // bags that were visibly there.
             float minX = float.MaxValue, maxX = float.MinValue, topY = 0f;
-            const float bagHalfLength = 0.21f;   // capsule height 0.42, lying along X
-            const float bagRadius = 0.15f;       // capsule diameter 0.30
+            const float bagHalfLength = 0.21f;   // 0.42 long, lying along X
+            const float bagRadius = 0.12f;       // half the height of a filled bag, flattened by the ones on top
 
             for (int row = 0; row < rows; row++)
             {
@@ -512,9 +520,9 @@ namespace CombatPrep.Core
                 for (int i = 0; i < count; i++)
                 {
                     float x = (i - count * 0.5f) * 0.38f + offset;
-                    var bag = Prim.Capsule(t, $"Bag{row}_{i}", new Vector3(x, y, 0f), 0.30f, 0.42f,
-                                           (row + i) % 2 == 0 ? Mat.Canvas : Mat.SandDark,
-                                           false, new Vector3(0f, 0f, 90f));
+                    var bag = Prim.Sack(t, $"Bag{row}_{i}", new Vector3(x, y, 0f), 0.30f, 0.42f,
+                                        (row + i) % 2 == 0 ? Mat.Canvas : Mat.SandDark,
+                                        new Vector3(0f, 0f, 90f));
                     var burlap = SandbagMaterial(row + i);
                     if (burlap != null) Prim.SetMaterial(bag, burlap);
                     bag.localRotation = Quaternion.Euler(0f, Random.Range(-7f, 7f), 90f);

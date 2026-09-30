@@ -82,6 +82,10 @@ namespace CombatPrep.Core
         public Prop Tyre;
         public Prop Crate;
 
+        [Header("Ground")]
+        [Tooltip("URP terrain material the ground is drawn with (RangeBuilder.Ground).")]
+        public Material TerrainMaterial;
+
         [Header("Sky")]
         public Texture Sky;
         public float SkyExposure = 0.14f;

@@ -49,7 +49,7 @@ namespace CombatPrep.Core
         {
             Application.targetFrameRate = -1;
             QualitySettings.vSyncCount = 1;
-            QualitySettings.shadowDistance = 130f;
+            GraphicsSetup.Apply(gameObject);
 
             BuildSystems();
             Lighting();
@@ -70,6 +70,15 @@ namespace CombatPrep.Core
         {
             if (NetworkManager.Singleton != null)
                 NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnect;
+
+            StartCoroutine(CaptureReflections());
+        }
+
+        /// <summary>The reflection probes, once the fires have had a moment to take hold.</summary>
+        System.Collections.IEnumerator CaptureReflections()
+        {
+            yield return new WaitForSeconds(1.5f);
+            RangeBuilder.RenderReflections();
         }
 
         void OnDestroy()
@@ -98,6 +107,7 @@ namespace CombatPrep.Core
             _systems.AddComponent<FxSystem>();
             _systems.AddComponent<Storm>();
             _systems.AddComponent<Weather>();
+            _systems.AddComponent<VolumetricLight>();
             _systems.AddComponent<Hud>();
 
             // One listener for the whole session. It stays parented here forever and
@@ -112,11 +122,13 @@ namespace CombatPrep.Core
         // --------------------------------------------------------------------- lighting
 
         /// <summary>
-        /// Storm light. One cold, high key light standing in for a sun buried in cloud: soft,
-        /// weak shadows, because overcast light comes from everywhere. Ambient does most of the
-        /// work, and dense exponential fog - the same colour as the sky's horizon - eats the
-        /// distance so ruins fade out instead of ending. Storm owns the sky and borrows this
-        /// light for lightning.
+        /// Storm light. One cold key light standing in for a sun buried in cloud: soft shadows,
+        /// because overcast light comes from everywhere. It comes in low from the south-west,
+        /// behind the firing line, so the faces you look at from there and from the spawns are
+        /// lit and the shadows run long down the lanes - lit from the far end, everything was a
+        /// black silhouette. Ambient does most of the work, and dense exponential fog - the
+        /// same colour as the sky's horizon - eats the distance so ruins fade out instead of
+        /// ending. Storm owns the sky and borrows this light for lightning.
         /// </summary>
         void Lighting()
         {
@@ -124,15 +136,15 @@ namespace CombatPrep.Core
             var key = keyGo.AddComponent<Light>();
             key.type = LightType.Directional;
             key.color = new Color(0.66f, 0.74f, 0.86f);
-            key.intensity = 1.0f;
+            key.intensity = 1.3f;
             key.shadows = LightShadows.Soft;
-            key.shadowStrength = 0.55f;
-            keyGo.transform.rotation = Quaternion.Euler(58f, 200f, 0f);
+            key.shadowStrength = 0.7f;
+            keyGo.transform.rotation = Quaternion.Euler(40f, 32f, 0f);
 
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.36f, 0.40f, 0.46f);
-            RenderSettings.ambientEquatorColor = new Color(0.25f, 0.265f, 0.29f);
-            RenderSettings.ambientGroundColor = new Color(0.12f, 0.12f, 0.125f);
+            RenderSettings.ambientSkyColor = new Color(0.41f, 0.46f, 0.53f);
+            RenderSettings.ambientEquatorColor = new Color(0.29f, 0.305f, 0.335f);
+            RenderSettings.ambientGroundColor = new Color(0.14f, 0.14f, 0.145f);
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
@@ -183,7 +195,7 @@ namespace CombatPrep.Core
             bloom.dirtIntensity.Override(2.2f);
 
             var color = profile.Add<ColorAdjustments>(true);
-            color.postExposure.Override(0.45f);
+            color.postExposure.Override(0.6f);
             color.contrast.Override(15f);
             color.saturation.Override(-30f);
             color.colorFilter.Override(new Color(0.92f, 0.96f, 1f));
@@ -208,16 +220,33 @@ namespace CombatPrep.Core
 
             var aberration = profile.Add<ChromaticAberration>(true);
             aberration.intensity.Override(0.06f);
+
+            // Camera glare off the brightest things - fires, muzzle flashes, lightning: a faint
+            // horizontal streak and a ghost or two, as a real lens throws.
+            var flare = profile.Add<ScreenSpaceLensFlare>(true);
+            flare.intensity.Override(0.35f);
+            flare.firstFlareIntensity.Override(0.4f);
+            flare.secondaryFlareIntensity.Override(0.25f);
+            flare.warpedFlareIntensity.Override(0.15f);
+            flare.streaksIntensity.Override(0.55f);
+            flare.streaksLength.Override(0.45f);
+            flare.streaksThreshold.Override(0.4f);
+            flare.tintColor.Override(new Color(1f, 0.86f, 0.72f));
         }
 
-        /// <summary>URP renders post-processing per camera, so every camera must opt in.</summary>
+        /// <summary>
+        /// URP renders post-processing per camera, so every camera must opt in. Anti-aliasing is
+        /// temporal, so thin things - wire, rain, distant edges - stop crawling; on big screens
+        /// FSR then upscales the result (see GraphicsSetup).
+        /// </summary>
         public static void ConfigureCamera(Camera cam)
         {
             var data = cam.GetUniversalAdditionalCameraData();
             if (data == null) return;
             data.renderPostProcessing = true;
-            data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-            data.antialiasingQuality = AntialiasingQuality.Medium;
+            data.antialiasing = AntialiasingMode.TemporalAntiAliasing;
+            data.taaSettings.quality = TemporalAAQuality.High;
+            data.taaSettings.contrastAdaptiveSharpening = 0.3f;
         }
 
         // -------------------------------------------------------------------- menu flow

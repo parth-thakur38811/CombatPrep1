@@ -81,6 +81,7 @@ namespace CombatPrep.Weapons
             _count = StartingCount;
 
             _held = Grenade.BuildModel(Cam.transform, "HeldGrenade");
+            PlayerRigBuilder.MarkViewmodel(_held);
             _held.localPosition = ReadyPos;
             _held.gameObject.SetActive(false);
 

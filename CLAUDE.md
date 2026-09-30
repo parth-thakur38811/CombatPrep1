@@ -29,8 +29,9 @@ the folder above it is only a container.
 | Area | Files |
 |---|---|
 | Startup, lighting, post-processing | `Scripts/Core/Bootstrap.cs` |
-| Arena (seeded, deterministic) | `Scripts/Core/RangeBuilder*.cs` - `.Warzone` (ruins, craters, puddles, fires), `.Online` (extra cover shown only online) |
-| First-person rig | `Scripts/Core/PlayerRigBuilder.cs`, `Scripts/Player/*` |
+| Rendering | `Settings/PC_RPAsset` + `PC_Renderer` (TAA, FSR, 64-bit HDR, shadows, SSAO), `Core/GraphicsSetup` (render scale, texture filtering), `Shaders/VolumetricLight` + `FX/VolumetricLight` (light in the air), `Core/EnvironmentCapture` (reflections) |
+| Arena (seeded, deterministic) | `Scripts/Core/RangeBuilder*.cs` - `.Warzone` (ruins, craters, puddles, fires), `.Online` (extra cover shown only online), `.Ground` (painted terrain), `.Reflections` (probes) |
+| First-person rig | `Scripts/Core/PlayerRigBuilder.cs`, `Scripts/Player/*` - `FirstPersonArms` (the soldier's forearms, reaching for the gun) |
 | Guns | `Scripts/Weapons/*` - `WeaponLibrary` (the five guns), `WeaponLoadout` (all five carried, keys 1-5), `WeaponModelBuilder` (primitive models, optics), `Weapon` (firing), `WeaponAnimator` (ADS pose, visual kick, draw) |
 | Sights | `Assets/Shaders/Resources/Reticle.shader` - screen-anchored reticle on the sight glass |
 | Grenades | `Scripts/Weapons/Grenade.cs`, `GrenadeThrower.cs` |
@@ -46,7 +47,9 @@ the folder above it is only a container.
   is added, changed or removed, after script reloads, and when an FX prefab is missing. It
   fingerprints sources by name and size; bump its `Version` constant to force every machine
   to rebuild after changing builder code. Steps: Poly Haven surfaces and props (ARM repacked
-  into a wet mask), sky, soldier, gunshots, FX prefabs.
+  into a wet mask), sky, soldier, gunshots, FX prefabs, the ground's terrain material. It takes
+  the largest resolution present (`_8k` > `_4k` > `_2k` > `_1k`), imports up to 4096 and makes
+  masks up to 2048, so a sharper download only needs dropping in beside the old one.
 - **SoldierBuilder** reads `Art/Characters/Soldier/russian_soldier.glb` (Unity can't import
   glTF, so it parses it) into a mesh, URP materials and `Art/Generated/Soldier/Soldier.prefab`.
   Mixamo FBXs are imported as Humanoid clips, sorted by file name (idle / walk / run / sprint
@@ -62,7 +65,8 @@ the folder above it is only a container.
   resets them; deleting one regenerates it.
 - **RenderingSetup / Build Range Scene**: code-made materials leave shaders unreferenced, so
   the scene carries keep-alive materials; anything referenced from `ArtLibrary` (Resources)
-  or placed in a Resources folder ships automatically.
+  or placed in a Resources folder ships automatically. On every script load it also makes sure
+  the PC renderer has the `VolumetricLight` full-screen pass (before transparents, reads depth).
 
 ## Online model
 
@@ -92,9 +96,19 @@ the folder above it is only a container.
   source-file lines, add a new `-out:` plus every `Assets/Scripts/**/*.cs`, and run
   `"<Unity>/Editor/Data/NetCoreRuntime/dotnet.exe" exec "<Unity>/Editor/Data/DotNetSdkRoslyn/csc.dll" -noconfig @file.rsp`
   (with `MSYS_NO_PATHCONV=1` in Git Bash). Do the same for `Assembly-CSharp-Editor.rsp`
-  against the freshly built game DLL.
+  against the freshly built game DLL. Pass `csc.dll` as a Windows path (`cygpath -w`): given
+  `/c/...` dotnet says "the application to execute does not exist", a grep for `error` finds
+  nothing, and a broken build reads as clean - check the output DLL's timestamp moved.
 - Editor log: `%LOCALAPPDATA%\Unity\Editor\Editor.log` (builder messages start with
   `CombatPrep`). Built game: `%USERPROFILE%\AppData\LocalLow\DefaultCompany\CombatPrep1\Player.log`.
+- Seeing the game without the editor: copy the project with its Library to a short path
+  outside the repo (Library paths break Windows' 260-character limit under deeper folders),
+  add a batch-mode `-executeMethod` script that enters play mode, and render cameras to PNG
+  with `RenderPipeline.SubmitRenderRequest` (a few frames each, for TAA). The owner's editor
+  holds the project lock, hence the copy. Realtime reflection probes never render that way.
+  For what only breaks in builds, build the player from the copy (`BuildPipeline.BuildPlayer`
+  in batch mode) and run the exe with `-batchmode`: it still renders, and a
+  `[RuntimeInitializeOnLoadMethod]` hook reading the command line can take the same shots.
 
 ## Things that bite
 
@@ -105,6 +119,26 @@ the folder above it is only a container.
 - `Tex` textures stay readable (`Apply(true)`), which the FX builder relies on to save PNGs.
 - The first-person rig holds all five guns but only the one in hand is active. Anything that
   follows the gun in hand (HUD, zoom, aim sensitivity) belongs in `Weapon.Draw`, not `Init`.
+- `Mathf.SmoothStep(a, b, t)` blends from a to b - it is not shader `smoothstep(edge0, edge1, x)`.
+  Using it as one left every puddle, smoke puff, scorch and bullet hole a half-transparent
+  square. Soft edges use `TexFx.Edge` / `RangeBuilder.Smooth`.
+- URP re-validates a material when it's saved as an asset: transparent Lit with "preserve
+  specular" becomes premultiplied, and its reflection then covers the whole quad, shape or
+  not. Decals set `_BlendModePreserveSpecular` to 0.
+- The environment reflection Unity bakes from the storm sky comes out a clear blue day, and
+  realtime probes don't render in batch mode, so reflections are captured from the scene
+  itself (`EnvironmentCapture`) into custom probes and the default reflection.
+- URP's STP upscaler posterised the dark sky and fog into bands; it's TAA plus FSR instead.
+- `Prim.Box` builds a bevelled mesh of the given size at unit scale - resize a box by
+  rebuilding it, never by scaling its transform.
+- The editor compiles any shader variant on demand; a build keeps only the variants its
+  materials and scenes ask for. Whatever needs one nobody asks for works in the editor and
+  breaks in the build: the ground terrain, made at runtime, drew nothing at all in a build
+  while instanced (its instancing variants were stripped), so it's drawn plain. Check look
+  changes in a build too.
+- A bare `new RenderTextureDescriptor { ... }` defaults `shadowSamplingMode` to
+  `CompareDepths`: give it a depth buffer and a camera renders into it pure black. Set
+  `ShadowSamplingMode.None` (as `EnvironmentCapture` does).
 - Pushing needs the owner's GitHub sign-in (Git Credential Manager); if a push fails, hand
   them `git push origin main`.
 
@@ -138,3 +172,12 @@ the folder above it is only a container.
   ablaze under smoke columns, the far-corner pair smouldering - with breaches, windows and a
   surviving upper floor, solid to players, bullets and blasts. Their ground is claimed before
   the clutter is scattered. The skyline ring moved out to 100-160 m and no longer burns.
+- **Graphics pass:** temporal AA (FSR upscaling above 1660 lines), 64-bit HDR with HDR
+  grading, shadows to 120 m on a 4096 map, stronger SSAO, 16x texture filtering; volumetric
+  light (storm-light shafts, glow round fires); reflections captured from the scene; fire
+  lights that cast shadows; screen-space lens flares. Every box bevelled; sandbags as sacks;
+  ruins with broken tops and rebar; the ground a terrain painted mud / burnt earth / grit.
+  Puddles, smoke, scorches and bullet holes fixed (they were half-transparent squares); decal
+  reflections fixed; berms no longer frosty. The storm light now comes from behind the firing
+  line, a little brighter overall. First-person forearms hold the gun; a fill light on the
+  viewmodel keeps it from reading as a black cut-out.

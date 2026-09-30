@@ -77,8 +77,8 @@ namespace CombatPrep.Core
                 float r = Radius(x, y, size);
                 float n = Mathf.PerlinNoise(u * 4.2f + o, v * 4.2f + o) * 0.65f
                         + Mathf.PerlinNoise(u * 9.5f + o, v * 9.5f - o) * 0.35f;
-                float body = Mathf.SmoothStep(1f, 0.15f, r);
-                float a = body * Mathf.SmoothStep(0.18f, 0.62f, n + (1f - r) * 0.45f);
+                float body = Edge(1f, 0.15f, r);
+                float a = body * Edge(0.18f, 0.62f, n + (1f - r) * 0.45f);
                 float shade = 0.72f + 0.28f * v;
                 px[y * size + x] = new Color(shade, shade, shade, a);
             }
@@ -120,7 +120,7 @@ namespace CombatPrep.Core
                 float rays = Mathf.PerlinNoise(ang * 2.2f + o, o) * 0.55f + Mathf.PerlinNoise(ang * 7f + o, 3f) * 0.25f;
                 float grit = Mathf.PerlinNoise(dx * 9f + o, dy * 9f - o);
                 float reach = 0.42f + rays * 0.55f;
-                float a = Mathf.Clamp01(1f - Mathf.SmoothStep(reach * 0.35f, reach, r)) * (0.75f + grit * 0.25f);
+                float a = (1f - Edge(reach * 0.35f, reach, r)) * (0.75f + grit * 0.25f);
                 float c = Mathf.Lerp(0.02f, 0.07f, grit);
                 px[y * size + x] = new Color(c, c * 0.95f, c * 0.9f, a * 0.92f);
             }
@@ -141,8 +141,8 @@ namespace CombatPrep.Core
                 float n = Mathf.PerlinNoise(u * 3.1f + o, v * 3.1f + o) * 0.7f
                         + Mathf.PerlinNoise(u * 8f - o, v * 8f + o) * 0.3f;
                 float edge = r + (n - 0.5f) * 0.62f;
-                float water = Mathf.SmoothStep(0.72f, 0.58f, edge);
-                float damp = Mathf.SmoothStep(0.9f, 0.62f, edge) * 0.45f;
+                float water = Edge(0.72f, 0.58f, edge);
+                float damp = Edge(0.9f, 0.62f, edge) * 0.45f;
                 px[y * size + x] = new Color(1f, 1f, 1f, Mathf.Max(water * 0.9f, damp));
             }
             return Finish(tex, px);
@@ -256,10 +256,10 @@ namespace CombatPrep.Core
                 float ang = Mathf.Atan2(dy, dx);
                 float n = Mathf.PerlinNoise(ang * 3.3f + o, r * 5f + o);
 
-                float hole = Mathf.SmoothStep(0.26f, 0.17f, r + (n - 0.5f) * 0.08f);
+                float hole = Edge(0.26f, 0.17f, r + (n - 0.5f) * 0.08f);
                 float rim = Mathf.Exp(-((r - 0.33f) / 0.1f) * ((r - 0.33f) / 0.1f)) * (0.55f + 0.45f * n);
                 float cracks = Mathf.Pow(Mathf.Max(0f, Mathf.Cos(ang * 6f + n * 3f)), 40f)
-                             * Mathf.SmoothStep(0.85f, 0.3f, r);
+                             * Edge(0.85f, 0.3f, r);
                 float halo = Mathf.Exp(-r * r * 5f) * 0.3f;
 
                 float shade = Mathf.Lerp(Mathf.Lerp(0.34f, 0.22f, cracks), 0.02f, hole);
@@ -271,6 +271,17 @@ namespace CombatPrep.Core
         }
 
         // ------------------------------------------------------------------------ utils
+
+        /// <summary>
+        /// A soft edge: 0 at <paramref name="from"/>, 1 at <paramref name="to"/>, eased in between
+        /// (either may be the larger). Shader smoothstep - not Mathf.SmoothStep, which blends
+        /// between its first two arguments and never reaches 0 or 1 here.
+        /// </summary>
+        static float Edge(float from, float to, float x)
+        {
+            float t = Mathf.Clamp01((x - from) / (to - from));
+            return t * t * (3f - 2f * t);
+        }
 
         static void Blob(Color[] px, int w, int h, float cx, float cy, float radius, float strength)
         {

@@ -23,7 +23,9 @@ namespace CombatPrep.Core
         /// <summary>Show the online-only cover (true) or hide it for practice (false).</summary>
         public static void SetOnlineCover(bool on)
         {
-            if (_onlineCover != null) _onlineCover.SetActive(on);
+            if (_onlineCover == null || _onlineCover.activeSelf == on) return;
+            _onlineCover.SetActive(on);
+            RenderReflections();    // the puddles by the centre container shouldn't mirror it once it's gone
         }
 
         static void OnlineCover(Transform root)

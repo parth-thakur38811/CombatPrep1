@@ -125,8 +125,8 @@ namespace CombatPrep.Targets
             for (int i = 0; i < 3; i++)
             {
                 float x = -0.30f + i * 0.30f;
-                var bag = Prim.Capsule(frame, $"Bag{i}", new Vector3(x, 0.085f, 0.22f), 0.26f, 0.34f,
-                                       i % 2 == 0 ? Mat.Canvas : Mat.SandDark, false, new Vector3(0f, 0f, 90f));
+                var bag = Prim.Sack(frame, $"Bag{i}", new Vector3(x, 0.085f, 0.22f), 0.26f, 0.34f,
+                                    i % 2 == 0 ? Mat.Canvas : Mat.SandDark, new Vector3(0f, 0f, 90f));
                 var burlap = RangeBuilder.SandbagMaterial(i);
                 if (burlap != null) Prim.SetMaterial(bag, burlap);
             }

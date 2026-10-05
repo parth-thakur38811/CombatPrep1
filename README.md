@@ -3,46 +3,37 @@
 A first-person shooter made in Unity: a shooting range for practising your aim, and online
 matches for up to four players, set in a rain-soaked war zone at dusk.
 
-It started under one rule: **nothing is downloaded or imported.** Every gun, every target and
-every gunshot had to be created by code while the game is running. The Unity scene still holds
-just two objects — one that builds everything else when you press Play, and the network manager
+The Unity scene holds just two objects — one that builds everything when you press Play (Bootstrap) , and the network manager
 for online games.
 
-For the war-zone update I relaxed the rule for the things code couldn't make convincingly: the
-ground, concrete, containers, sandbags, the sky and a few props now use free, public-domain
+For the war-zone: the ground, concrete, containers, sandbags, the sky and a few props use free, public-domain
 textures and models from [Poly Haven](https://polyhaven.com), the soldiers you fight online are a
 rigged model shared under CC BY, animated with Mixamo, and the gunshots are real recordings from
 a public-domain firearm library (all listed in [CREDITS.md](CREDITS.md)). The guns, the targets,
-the storm, the visual effects and every other sound are still made in code.
+the storm, the visual effects and every other sound are made in code.
 
 > **How this was made:** I planned the project, decided what to build, played each version
-> and worked out what needed fixing. The code itself was written with the help of
+> and found bugs and errors. The code itself was written with the help of
 > [Claude Code](https://claude.com/claude-code), an AI coding assistant.
 
 ![The arena at dusk, with ruins burning on both flanks](docs/warzone.jpg)
 
-## The idea
-
-Normally when you make a game you download models and sounds that other people made. I
-wanted to see what happens if you can't do that — if every single thing has to be produced
-by writing code instead.
-
-It turns out you can get quite far:
+##   Assets built with code
 
 - **Guns** are built from about 25 of Unity's basic shapes — cubes, cylinders and spheres —
   stacked into a rifle.
 - **Textures** are drawn pixel by pixel in code: the camouflage and stripe patterns on the
   weapon finishes, the printed paper target sheets, and the smoke, flames, sparks, bullet holes
   and puddles of the effects.
-- **Sounds** are generated as raw audio. A gunshot was three layers mixed together — a sharp
-  crack, a low thump, and the echo afterwards. (Since the war-zone update the crack and thump
-  are real recordings; the echo is still synthesised under them.)
+- **Sounds** are generated as raw audio. A gunshot is three layers mixed together — a sharp
+  crack, a low thump, and the echo afterwards. (the crack and thump
+  are real recordings; the echo is still synthesised under them.) 
 - **The arena** — earth berms, shipping containers, sandbags, craters, wire and four shelled
   buildings — is assembled by a script when the game starts. It always uses the same random
   seed, so every player in an online match gets exactly the same arena without it ever being
   sent over the network.
 - **The storm** is code as well: clouds drifting with the wind, rain that stops at roofs and
-  splashes where it lands, lightning that throws shadows across the arena, thunder that
+  splashes where it lands, lightning that throws shadows across the arena, thunder sound that
   arrives a few seconds later, and shelled buildings still burning, their smoke leaning with
   the wind.
 
@@ -65,17 +56,16 @@ dropped, accuracy and headshots.
 ![Practice at the firing line](docs/first-person.jpg)
 
 **Playing online.** Choose PLAY ONLINE and host a match: you get a short code that up to three
-friends type in to join, and you start the match once someone has. It's every player for
-themselves. It runs on Unity's Lobby and Relay services, so nobody has to set up their router.
+friends type in to join, and you start the match once someone has joined. It's every player for
+themselves. It runs on Unity's Lobby and Relay services.
 When you're eliminated you see who got you, and three seconds later you're back in at the spawn
 point furthest from your opponents; a feed in the corner shows who eliminated whom. Other players appear as animated soldiers carrying the
 gun and finish they chose, and their bodies lean with where they're aiming.
 
 ![Another player as you see them online: the gun and finish they picked, firing](docs/opponent.jpg)
 
-**Grenades.** Press `G`, hold the left mouse button to see the arc it will fly, and let go to
-throw. You carry four, topped up each time you respawn online. In an online match the host
-decides where each one goes off, and it hurts anyone with a clear line to the blast —
+**Grenades.** Press `G`, hold the left mouse button to see the projectile trajectory, and let go to
+throw. You carry four, topped up each time you respawn online. In an online match it hurts anyone with a clear line to the blast —
 including whoever threw it.
 
 ![A grenade going off among the targets](docs/grenade.jpg)
@@ -84,8 +74,7 @@ including whoever threw it.
 
 **Recoil you can learn.** Each gun kicks in the same pattern every time instead of
 randomly, so with practice you can pull down against it — the way it works in competitive
-shooters. Pulling against the recoil properly cancels it out rather than fighting the
-game.
+shooters. Pulling against the recoil properly cancels it out.
 
 **An honest crosshair.** The crosshair opens up by exactly as much as your bullets actually
 spread. It isn't a decoration; it's showing you the real number.
@@ -99,14 +88,13 @@ and stay one pixel thin at any zoom.
 
 **Hands on the gun.** Your arms aren't a canned animation. Every frame they reach for the grip
 and fore-end of whatever gun you're holding, so they follow its kick, its sway and the reload.
-The pistol is held in both hands, the way you'd actually hold one.
+The pistol (4) is held in both hands.
 
 ![The pistol, held in both hands](docs/pistol.jpg)
 
 **Fair hits online.** Whoever fires works out what their bullets hit, so shooting feels
 instant even with some lag. The host then checks every reported hit — that the gun could have
-fired that fast and reached that far — and works out the damage itself, rather than trusting
-a number sent by a player.
+fired that fast and reached that far — and works out the damage itself.
 
 **Light in the air.** Light scatters in the rain and haze, so the storm light and the fires
 glow through the air. Puddles and wet ground reflect what's really around them — the dark sky, the ruins,
@@ -118,10 +106,10 @@ the fires — and the fires throw flickering shadows across the walls.
 
 You'll need **Unity 6000.4.8f1** or newer.
 
-1. Open the project in Unity.
-2. In the menu bar, choose **CombatPrep → Build Range Scene**.
-3. Press **Play**, pick a weapon and a finish, then choose **PRACTICE**, or **PLAY ONLINE** to
-   host or join a match (online play needs an internet connection).
+1. Ask the creator for a ZIP file of the project, built from Unity
+2. Extract all files
+3. Open the CombatPrep1.exe file
+4. Practice or Play Online with friends
 
 | Key | Does |
 |---|---|
@@ -146,6 +134,7 @@ drawn as simple block soldiers instead. To add them:
    to match its pace to the players' real speed.
 3. Put the files in `Assets/Art/Characters/Mixamo/`. Unity sorts them by their names and builds
    the soldier's animation controller by itself.
+4. *You will have to create a new build using Unity for importing animations.*
 
 ## How the code is organised
 
@@ -170,4 +159,4 @@ written up in [COMBATPREP.md](COMBATPREP.md).
 
 ## Built with
 
-Unity 6000.4.8f1, C#, Universal Render Pipeline, Netcode for GameObjects, Unity Lobby and Relay
+Unity 6000.4.8f1, Claude Code, C#, Universal Render Pipeline, Netcode for GameObjects, Unity Lobby and Relay

@@ -1,17 +1,19 @@
-# CombatPrep — asset-free FPS range
+# CombatPrep — how it works
 
-Unity 6000.4.8f1 · URP 17.4 · Input System 1.19
+Unity 6000.4.8f1 · URP 17.4 · Input System 1.19 · Netcode for GameObjects 2
 
-Everything in this project is generated in code. There are no meshes, textures, materials,
-audio files, sprites, fonts, prefabs or authored scenes. The scene contains exactly one
-empty GameObject with `Bootstrap` on it; the range, the targets, the player, the gun, every
-texture and every sound are built at runtime.
+Most of this project is generated in code. The scene holds two GameObjects: one with
+`Bootstrap` on it, which builds the arena, the targets, the player, the guns, the HUD, every
+procedural texture and every synthesised sound at runtime, and the network manager for online
+play. Since the war-zone update some surfaces, the sky, a few props, the online soldier and the
+gunshot recordings are imported art (listed in [CREDITS.md](CREDITS.md)). Each goes through an
+editor builder, and the game falls back to its procedural version wherever one is missing.
 
 ## Running it
 
 1. In the Unity menu bar: **CombatPrep → Build Range Scene** (or `Ctrl+Shift+R`).
 2. Press **Play**.
-3. Pick a weapon and a finish, then **DEPLOY**.
+3. Pick a weapon and a finish, then **PRACTICE**, or **PLAY ONLINE** to host or join a match.
 
 ## Controls
 
@@ -27,7 +29,7 @@ texture and every sound are built at runtime.
 | `Shift` | Sprint |
 | `Ctrl` | Crouch |
 | `Space` | Jump |
-| `Esc` | Back to loadout |
+| `Esc` | Back to the menu (online, leaves the match) |
 
 ## The loadout screen
 
@@ -83,19 +85,49 @@ directly is the classic FP bug where shots taken while hugging cover hit the wal
 leaning past.
 
 **Sights are open, not solid.** Optics are built as rings of segment boxes (`Prim.Ring`) so
-the bore is genuinely clear and you aim *through* the sight. The reticle is an emissive
-object on the sight axis; since the ADS pose is solved to put `SightPoint` dead centre, it
-lands exactly on the screen centre for every weapon. Magnified optics align from just
-behind the rear ring so the eye sits at a realistic eye relief instead of inside the tube.
+the bore is genuinely clear and you aim *through* the sight. The ADS pose is solved to put
+`SightPoint` dead centre for every weapon, and the red dot and scope reticle are drawn in
+screen space on the sight's glass (`Reticle.shader`), anchored to the exact point of impact —
+so they stay on target while the gun kicks and stay one pixel thin at any zoom. Magnified
+optics align from just behind the rear ring so the eye sits at a realistic eye relief instead
+of inside the tube.
 
 **Per trigger pull, not per bullet.** A shotgun resolves nine independent rays but reports
-one hit, one damage number and one hitmarker, so accuracy stats stay meaningful.
+one hit and one hit marker, so accuracy stats stay meaningful.
 
-**Sound is synthesised.** `Synth` builds every clip as a float buffer. A gunshot is three
-voices — a high-passed noise *crack*, a downward-sweeping sine *body*, and low-passed noise
-*tail* — summed and soft-clipped so the transient saturates instead of digitally clipping.
-Each weapon regenerates the report from its own synth parameters, so the shotgun genuinely
-booms and the SMG genuinely snaps.
+**Sound is synthesised, except the gunshots.** `Synth` builds every other clip as a float
+buffer. A gunshot used to be three synthesised voices — a high-passed noise *crack*, a
+downward-sweeping sine *body*, and low-passed noise *tail* — summed and soft-clipped so the
+transient saturates instead of digitally clipping. The crack and body are now real recordings,
+several takes per gun played in turn so repeated shots don't sound identical; the synthesised
+tail still plays under them, built from each weapon's own parameters, so the shotgun booms and
+the SMG snaps.
+
+**Arms that reach, not animations.** The first-person arms are the online soldier's arms, cut
+out of its mesh (`FirstPersonArms`). Every frame each one is a two-joint reach — shoulder to
+elbow to wrist — for the grip and the fore-end of the gun in hand, so the hands follow kick,
+sway, sprint and reload without a single authored animation. A pistol is held in both hands
+by the grip, the off hand mirroring the firing hand.
+
+## Online
+
+Up to four players, every one for themselves, joined with a short code through Unity's Lobby
+and Relay services. The host is also the server.
+
+- **Movement is the owner's.** Each player moves their own body and the others see it
+  smoothed, so moving feels exactly as it does offline.
+- **"Favour the shooter".** The shooter's own machine traces the bullets, so shooting feels
+  instant despite lag. What it sends is which gun fired and what each pellet hit; the server
+  checks the shot (whose player it is, the gun's fire rate, its range) and works out the
+  damage itself from that gun, never from a number the client sends.
+- **Grenades are the server's.** The thrower's grenade appears at once on their screen, while
+  the server flies its own copy and, at the fuse, damages every player with a clear line from
+  the blast to their feet, chest or head — the thrower and the host included.
+- **The arena is never sent.** It's built from a fixed random seed, so every machine builds
+  the same one.
+- **Other players** are the rigged soldier with Mixamo animations driven by what the network
+  already carries — speed and direction, crouch, aim pitch, shots — holding a copy of their gun
+  in their finish. Hit boxes ride the animated bones.
 
 ## Targets
 
@@ -133,17 +165,28 @@ The knobs worth reaching for first:
 
 ```
 Assets/Scripts/
-  Core/      Bootstrap (flow + lighting + post-fx), RangeBuilder, Prim, Mat, Tex, Spring
-  Player/    GameInput, PlayerMotor, PlayerLook (aim recoil)
-  Weapons/   WeaponLibrary (the roster), WeaponDefinition, Weapon, RecoilSystem,
-             SpreadSystem, WeaponModelBuilder (+ optics), WeaponAnimator (visual recoil)
+  Core/      Bootstrap (flow + lighting + post-fx), RangeBuilder (the seeded arena),
+             PlayerRigBuilder, Prim, Mat, Tex, Spring
+  Player/    GameInput, PlayerMotor, PlayerLook (aim recoil), FirstPersonArms
+  Weapons/   WeaponLibrary (the roster), WeaponDefinition, Weapon, WeaponLoadout, RecoilSystem,
+             SpreadSystem, WeaponModelBuilder (+ optics), WeaponAnimator (visual recoil),
+             Grenade, GrenadeThrower
   Skins/     SkinLibrary, SkinApplier
   Targets/   Target, TargetBuilder (paper + frame), TargetMover
+  Net/       SessionService (Lobby + Relay), NetPlayer (combat RPCs), MatchManager,
+             AvatarBuilder + SoldierView (other players), RemoteHitProxy
   Audio/     Synth, GameAudio
-  FX/        FxSystem (tracers, impacts, holes), CameraShake
-  UI/        Hud, MainMenu
+  FX/        FxRecipes + FxSystem (effects), Weather (rain), Storm (sky, lightning, thunder),
+             FireFx, VolumetricLight, CameraShake
+  UI/        Hud, MainMenu, LobbyMenu
 Assets/Editor/
-  SceneSetup.cs   CombatPrep → Build Range Scene
+  SceneSetup.cs       CombatPrep → Build Range Scene
+  NetworkSetup.cs     the network manager and network prefabs
+  ArtBuilder.cs       imported surfaces, props, sky and gunshots → materials and the ArtLibrary
+  SoldierBuilder.cs   the soldier model and its Mixamo animation controller
+  FxPrefabBuilder.cs  effect prefabs from FxRecipes
+  RenderingSetup.cs   the light-in-the-air pass and shader keep-alives
+Assets/Shaders/   StormSky, VolumetricLight, Reticle
 ```
 
 ## Known limits
@@ -152,8 +195,10 @@ Assets/Editor/
   still to come. `MuzzleVelocity` is already wired through every weapon for it.
 - **The gun can clip into walls.** Fixing it properly needs a URP overlay camera stack
   rendering the weapon on its own layer. Near clip is at 0.012 as a stopgap.
-- **No scope vignette.** A magnified optic currently shows the world through the tube with
-  no black surround outside the objective, which is technically honest but reads less like
-  a scope than the PUBG reference does.
-- **No round timer or score run.** The range is free-play; stats accumulate until you go
-  back to the loadout screen.
+- **No match end.** Practice is free play; stats accumulate until you go back to the menu.
+  Online matches are open-ended too: kills and deaths are counted, but there's no time or
+  score limit and no scoreboard yet.
+- **Built for friends, not strangers.** Shooters decide their own hits (checked by the host),
+  which feels right among friends; a public competitive game would need the server to rewind
+  time and check hits itself. And there's no host migration — if the host leaves, the match
+  ends for everyone.

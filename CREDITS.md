@@ -13,10 +13,10 @@ here anyway.
 |---|---|---|
 | [Overcast Soil (Pure Sky)](https://polyhaven.com/a/overcast_soil_puresky) | Sky | Jarod Guest, Sergej Majboroda |
 | [Brown Mud 02](https://polyhaven.com/a/brown_mud_02) | Arena ground | Rob Tuytel |
-| [Burned Ground 01](https://polyhaven.com/a/burned_ground_01) | Earth mounds, crater rims | Rob Tuytel |
+| [Burned Ground 01](https://polyhaven.com/a/burned_ground_01) | Earth mounds, crater rims, burnt patches in the ground | Rob Tuytel |
 | [Damaged Concrete Floor](https://polyhaven.com/a/damaged_concrete_floor) | Firing-line pad | Rob Tuytel |
 | [Concrete Layers 02](https://polyhaven.com/a/concrete_layers_02) | Blast walls, ruins | Rob Tuytel |
-| [Concrete Debris](https://polyhaven.com/a/concrete_debris) | Rubble | Amal Kumar |
+| [Concrete Debris](https://polyhaven.com/a/concrete_debris) | Rubble, grit in the ground round the ruins | Amal Kumar |
 | [Container Side](https://polyhaven.com/a/container_side) | Shipping containers | Dimitrios Savva |
 | [Hessian 230](https://polyhaven.com/a/hessian_230) | Sandbags | colormass, Rico Cilliers |
 | [Weathered Planks](https://polyhaven.com/a/weathered_planks) | Benches, container floors | Dario Barresi, Dimitrios Savva |

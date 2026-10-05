@@ -104,12 +104,20 @@ the fires — and the fires throw flickering shadows across the walls.
 
 ## Running it
 
-You'll need **Unity 6000.4.8f1** or newer.
+**To play** (Windows, 64-bit):
 
-1. Ask the creator for a ZIP file of the project, built from Unity
+1. Download `CombatPrep-Windows.zip` from [Releases](https://github.com/parth-thakur38811/CombatPrep1/releases/latest)
 2. Extract all files
-3. Open the CombatPrep1.exe file
-4. Practice or Play Online with friends
+3. Open the CombatPrep1.exe file. If Windows says it protected your PC, click **More info**,
+   then **Run anyway** - the game isn't signed by a registered publisher
+4. Practice or Play Online with friends (online play needs an internet connection)
+
+**To open the project in Unity** you'll need **Unity 6000.4.8f1** or newer:
+
+1. Open the project in Unity.
+2. In the menu bar, choose **CombatPrep → Build Range Scene**.
+3. Press **Play**, pick a weapon and a finish, then choose **PRACTICE**, or **PLAY ONLINE** to
+   host or join a match.
 
 | Key | Does |
 |---|---|
@@ -160,3 +168,8 @@ written up in [COMBATPREP.md](COMBATPREP.md).
 ## Built with
 
 Unity 6000.4.8f1, Claude Code, C#, Universal Render Pipeline, Netcode for GameObjects, Unity Lobby and Relay
+
+## Licence
+
+© 2026 Parth Thakur. All rights reserved - see [LICENSE](LICENSE). The third-party textures,
+model and recordings keep their own licences, listed in [CREDITS.md](CREDITS.md).

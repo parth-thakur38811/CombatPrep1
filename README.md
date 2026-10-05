@@ -18,10 +18,7 @@ and so were the rain, fire, muzzle-flash and impact effects - which now live as 
 
 > **How this was made:** I planned the project, decided what to build, played each version
 > and worked out what needed fixing. The code itself was written with the help of
-> [Claude Code](https://claude.com/claude-code), an AI coding assistant. I've said so here
-> because being straightforward about it matters more to me than appearing to have done it
-> alone.
-
+> [Claude Code](https://claude.com/claude-code), an AI coding assistant. 
 ![The shooting range](docs/range-overview.png)
 
 ## The idea
